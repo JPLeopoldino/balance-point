@@ -1,0 +1,32 @@
+{
+  "name": "balance-point",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web",
+    "dev:server": "turbo run dev -F server",
+    "db:push": "turbo run db:push -F @balance-point/db",
+    "db:studio": "turbo run db:studio -F @balance-point/db",
+    "db:generate": "turbo run db:generate -F @balance-point/db",
+    "db:migrate": "turbo run db:migrate -F @balance-point/db"
+  },
+  "dependencies": {
+    "@balance-point/env": "*",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@balance-point/config": "*",
+    "@types/node": "^22.13.14",
+    "turbo": "^2.10.2",
+    "typescript": "^6"
+  },
+  "packageManager": "npm@10.9.4"
+}

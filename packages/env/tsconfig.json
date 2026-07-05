@@ -1,0 +1,3 @@
+{
+  "extends": "@balance-point/config/tsconfig.base.json"
+}

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { cookies, headers } from "next/headers";
 
 import "../index.css";
-import Header from "@/components/header";
 import Providers from "@/components/providers";
+import { LOCALE_COOKIE, detectLocale } from "@/i18n/detect";
+import { LocaleProvider } from "@/i18n";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,23 +18,26 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "balance-point",
-  description: "balance-point",
+  title: "Balance Point",
+  description: "Personal finance — accounts, bills, subscriptions and projections",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [cookieStore, headerList] = await Promise.all([cookies(), headers()]);
+  const initialLocale = detectLocale(
+    cookieStore.get(LOCALE_COOKIE)?.value,
+    headerList.get("accept-language"),
+  );
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={initialLocale} suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Providers>
-          <div className="grid grid-rows-[auto_1fr] h-svh">
-            <Header />
-            {children}
-          </div>
+          <LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>
         </Providers>
       </body>
     </html>

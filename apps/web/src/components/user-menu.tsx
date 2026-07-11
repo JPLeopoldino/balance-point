@@ -12,13 +12,17 @@ import { Skeleton } from "@balance-point/ui/components/skeleton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useHydrated } from "@/hooks/use-hydrated";
 import { authClient } from "@/lib/auth-client";
 
 export default function UserMenu() {
   const router = useRouter();
+  const hydrated = useHydrated();
   const { data: session, isPending } = authClient.useSession();
 
-  if (isPending) {
+  // The session can resolve mid-hydration; render the server's skeleton until
+  // hydration is done so the first client render matches the SSR HTML.
+  if (!hydrated || isPending) {
     return <Skeleton className="h-9 w-24" />;
   }
 

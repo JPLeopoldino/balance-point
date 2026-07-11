@@ -29,7 +29,7 @@ npm install
 This project uses PostgreSQL with Drizzle ORM.
 
 1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
+2. Update your `apps/web/.env` file with your PostgreSQL connection details (see `apps/web/.env.example`).
 
 3. Apply the schema to your database:
 
@@ -91,7 +91,6 @@ balance-point/
 - `npm run dev`: Start all applications in development mode
 - `npm run build`: Build all applications
 - `npm run dev:web`: Start only the web application
-- `npm run dev:server`: Start only the server
 - `npm run check-types`: Check TypeScript types across all apps
 - `npm run db:push`: Push schema changes to database
 - `npm run db:generate`: Generate database client/types

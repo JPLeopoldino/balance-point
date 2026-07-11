@@ -1,14 +1,16 @@
 import { auth } from "@balance-point/auth";
-import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import { fromNodeHeaders } from "better-auth/node";
 
-export async function createContext(opts: CreateExpressContextOptions) {
+import { localeFromAcceptLanguage } from "./lib/locale";
+
+export async function createContext(opts: { headers: Headers }) {
   const session = await auth.api.getSession({
-    headers: fromNodeHeaders(opts.req.headers),
+    headers: opts.headers,
   });
   return {
     auth: null,
     session,
+    /** Browser language, used to auto-detect the locale on first login. */
+    preferredLocale: localeFromAcceptLanguage(opts.headers.get("accept-language")),
   };
 }
 

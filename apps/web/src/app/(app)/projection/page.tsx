@@ -158,7 +158,19 @@ export default function ProjectionPage() {
         </CardContent>
       </Card>
 
-      <div className="overflow-x-auto rounded-lg ring-1 ring-foreground/10">
+      {/*
+       * Month-by-month figures are for *comparing*, so this stays a real table
+       * and scrolls sideways on a phone rather than reflowing to cards. A bare
+       * `overflow-x-auto` div is reachable by touch but not by keyboard, which
+       * strands the last column (WCAG 2.1.1) — `role`+`aria-label`+`tabIndex`
+       * make it a focusable, announced scroll region.
+       */}
+      <div
+        role="region"
+        aria-label={t("projection.title")}
+        tabIndex={0}
+        className="overflow-x-auto rounded-lg ring-1 ring-foreground/10 focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <Table>
           <TableHeader>
             <TableRow>

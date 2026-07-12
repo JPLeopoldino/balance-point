@@ -39,7 +39,8 @@ import { PlanSimulationChart } from "@/components/plans/plan-simulation-chart";
 import { useFormat, useT } from "@/i18n";
 import type { PlanRow } from "@/lib/api-types";
 import { formatMoney, todayISO } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { planMutations } from "@/lib/mutations";
+import { withCallbacks } from "@/lib/optimistic";
 import { trpc } from "@/utils/trpc";
 
 type Mode = "lump_sum" | "installments";
@@ -85,8 +86,8 @@ export default function PlansPage() {
     enabled: simulateInput !== null,
   });
 
-  const createPlan = useMutation(trpc.plans.create.mutationOptions());
-  const commitPlan = useMutation(trpc.plans.commit.mutationOptions());
+  const createPlan = useMutation(planMutations.create());
+  const commitPlan = useMutation(planMutations.commit());
   const [confirmCommit, setConfirmCommit] = useState(false);
 
   const sim = simulation.data;
@@ -278,7 +279,6 @@ export default function PlansPage() {
                             onSuccess: (plan) => {
                               toast.success(t("plans.savedToast", { name: plan.name }));
                               setSelectedPlanId(plan.id);
-                              invalidateMoneyData();
                             },
                             onError: (error) => toast.error(error.message),
                           },
@@ -322,7 +322,6 @@ export default function PlansPage() {
                     count: result.bills.length,
                   }),
                 );
-                invalidateMoneyData();
               },
               onError: (error) => toast.error(error.message),
             },
@@ -344,7 +343,14 @@ function PlanCard({
 }) {
   const t = useT();
   const { formatDate } = useFormat();
-  const del = useMutation(trpc.plans.delete.mutationOptions());
+  // Hook-level callbacks: the optimistic patch removes this card from the
+  // list, which unmounts it before the server answers.
+  const del = useMutation(
+    withCallbacks(planMutations.delete(), {
+      onSuccess: () => toast.success(t("plans.deletedToast", { name: plan.name })),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
@@ -404,16 +410,7 @@ function PlanCard({
         destructive
         onConfirm={() => {
           setConfirmDelete(false);
-          del.mutate(
-            { id: plan.id },
-            {
-              onSuccess: () => {
-                toast.success(t("plans.deletedToast", { name: plan.name }));
-                invalidateMoneyData();
-              },
-              onError: (error) => toast.error(error.message),
-            },
-          );
+          del.mutate({ id: plan.id });
         }}
       />
     </Card>

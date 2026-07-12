@@ -50,7 +50,7 @@ import {
 import { useDisplayCurrency } from "@/hooks/use-display-currency";
 import type { RecurringRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { recurringMutations } from "@/lib/mutations";
 import { trpc } from "@/utils/trpc";
 
 /**
@@ -62,8 +62,8 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
   const { formatDate } = useFormat();
   const { currency: displayCurrency } = useDisplayCurrency();
   const templates = useQuery(trpc.recurring.list.queryOptions({ kind: "bill" }));
-  const toggle = useMutation(trpc.recurring.toggleActive.mutationOptions());
-  const del = useMutation(trpc.recurring.delete.mutationOptions());
+  const toggle = useMutation(recurringMutations.toggleActive());
+  const del = useMutation(recurringMutations.delete());
 
   const [creating, setCreating] = useState(() => Boolean(prefill));
   const [editing, setEditing] = useState<RecurringRow | null>(null);
@@ -180,10 +180,7 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
                       onCheckedChange={(active) =>
                         toggle.mutate(
                           { id: row.id, active },
-                          {
-                            onSuccess: () => invalidateMoneyData(),
-                            onError: (error) => toast.error(error.message),
-                          },
+                          { onError: (error) => toast.error(error.message) },
                         )
                       }
                     />
@@ -239,20 +236,20 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
         destructive
         onConfirm={() => {
           if (!deleting) return;
+          const template = deleting;
+          setDeleting(null);
           del.mutate(
-            { id: deleting.id, deleteFutureBills: true },
+            { id: template.id, deleteFutureBills: true },
             {
               onSuccess: (result) => {
                 toast.success(
                   result.deletedBills > 0
                     ? t("recurring.deletedWithBills", {
-                        name: deleting.name,
+                        name: template.name,
                         count: result.deletedBills,
                       })
-                    : t("recurring.deletedToast", { name: deleting.name }),
+                    : t("recurring.deletedToast", { name: template.name }),
                 );
-                setDeleting(null);
-                invalidateMoneyData();
               },
               onError: (error) => toast.error(error.message),
             },

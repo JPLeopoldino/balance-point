@@ -55,8 +55,9 @@ import { CurrencySelect } from "@/components/currency-select";
 import { MoneyInput } from "@/components/money-input";
 import type { AccountRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
-import { queryClient, trpc } from "@/utils/trpc";
+import { accountMutations } from "@/lib/mutations";
+import { withCallbacks } from "@/lib/optimistic";
+import { trpc } from "@/utils/trpc";
 
 export default function AccountsPage() {
   const t = useT();
@@ -135,8 +136,16 @@ export default function AccountsPage() {
 
 function AccountCard({ account, onEdit }: { account: AccountRow; onEdit: () => void }) {
   const t = useT();
-  const archive = useMutation(trpc.accounts.archive.mutationOptions());
-  const del = useMutation(trpc.accounts.delete.mutationOptions());
+  // Hook-level callbacks: archiving moves this card to the other grid, which
+  // remounts it — mutate-level callbacks would be dropped with the old instance.
+  const archive = useMutation(
+    withCallbacks(accountMutations.archive(), {
+      onSuccess: (_result, vars) =>
+        toast.success(vars.archived ? t("accounts.archivedToast") : t("accounts.unarchivedToast")),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const del = useMutation(accountMutations.delete());
   const accountsList = useQuery(trpc.accounts.list.queryOptions());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -148,9 +157,8 @@ function AccountCard({ account, onEdit }: { account: AccountRow; onEdit: () => v
     del.mutate(
       { id: account.id, reassignToId },
       {
-      onSuccess: () => {
+        onSuccess: () => {
           toast.success(t("accounts.deletedToast", { name: account.name }));
-          invalidateMoneyData();
         },
         onError: (error) => {
           if (error.data?.code === "CONFLICT") {
@@ -188,19 +196,7 @@ function AccountCard({ account, onEdit }: { account: AccountRow; onEdit: () => v
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={onEdit}>{t("accounts.editAndYield")}</DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  archive.mutate(
-                    { id: account.id, archived: !account.archived },
-                    {
-                      onSuccess: () => {
-                        toast.success(
-                          account.archived ? t("accounts.unarchivedToast") : t("accounts.archivedToast"),
-                        );
-                        invalidateMoneyData();
-                      },
-                    },
-                  )
-                }
+                onClick={() => archive.mutate({ id: account.id, archived: !account.archived })}
               >
                 {account.archived ? t("common.unarchive") : t("common.archive")}
               </DropdownMenuItem>
@@ -298,22 +294,20 @@ function InlineBalance({
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Money | null>(value);
-  const update = useMutation(trpc.accounts.updateBalance.mutationOptions());
+  const update = useMutation(accountMutations.updateBalance());
 
+  // Optimistic save: the editor closes and the card shows the new balance at
+  // once; a failure rolls the cache back with an error toast.
   function save() {
-    if (draft === null || draft === value) {
-      setEditing(false);
-      return;
-    }
+    setEditing(false);
+    if (draft === null || draft === value) return;
     update.mutate(
       { id: account.id, field, amount: draft },
       {
         onSuccess: () => {
           toast.success(
-            t("accounts.balanceUpdated", { label, amount: formatMoney(value, account.currency) }),
+            t("accounts.balanceUpdated", { label, amount: formatMoney(draft, account.currency) }),
           );
-          setEditing(false);
-          invalidateMoneyData();
         },
         onError: (error) => toast.error(error.message),
       },
@@ -414,9 +408,9 @@ function AccountFormDialog({
     }
   }, [yieldQuery.data, open]);
 
-  const create = useMutation(trpc.accounts.create.mutationOptions());
-  const update = useMutation(trpc.accounts.update.mutationOptions());
-  const setYield = useMutation(trpc.accounts.setYield.mutationOptions());
+  const create = useMutation(accountMutations.create());
+  const update = useMutation(accountMutations.update());
+  const setYield = useMutation(accountMutations.setYield());
 
   const rateBps = Math.round(Number(ratePct.replace(",", ".")) * 100);
   const monthlyPreview =
@@ -426,43 +420,53 @@ function AccountFormDialog({
         )
       : null;
 
-  async function submit() {
+  // Optimistic submit: the card updates/appears at once and the dialog closes;
+  // a failure rolls the cache back with an error toast.
+  function submit() {
     if (!name.trim()) return;
-    try {
-      if (isEdit && account) {
-        await update.mutateAsync({
+    const trimmedName = name.trim();
+    if (isEdit && account) {
+      update.mutate(
+        {
           id: account.id,
-          name: name.trim(),
+          name: trimmedName,
           institution: institution.trim() || null,
           currency,
           color,
-        });
-        if (yieldQuery.data || yieldEnabled) {
-          await setYield.mutateAsync({
+        },
+        {
+          onSuccess: () => toast.success(t("accounts.updatedToast", { name: trimmedName })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+      if (yieldQuery.data || yieldEnabled) {
+        setYield.mutate(
+          {
             bankAccountId: account.id,
             enabled: yieldEnabled,
             rateBps: Number.isFinite(rateBps) && rateBps > 0 ? rateBps : 0,
             ratePeriod,
-          });
-        }
-        toast.success(t("accounts.updatedToast", { name: name.trim() }));
-      } else {
-        await create.mutateAsync({
-          name: name.trim(),
+          },
+          { onError: (error) => toast.error(error.message) },
+        );
+      }
+    } else {
+      create.mutate(
+        {
+          name: trimmedName,
           institution: institution.trim() || undefined,
           currency,
           checkingBalance: checking ?? 0,
           investmentBalance: investment ?? 0,
           color,
-        });
-        toast.success(t("accounts.addedToast", { name: name.trim() }));
-      }
-      void queryClient.invalidateQueries({ queryKey: trpc.accounts.pathKey() });
-      invalidateMoneyData();
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("accounts.saveFailed"));
+        },
+        {
+          onSuccess: () => toast.success(t("accounts.addedToast", { name: trimmedName })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
     }
+    onOpenChange(false);
   }
 
   return (

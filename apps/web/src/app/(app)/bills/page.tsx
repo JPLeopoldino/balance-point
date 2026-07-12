@@ -50,7 +50,7 @@ import { useDisplayCurrency } from "@/hooks/use-display-currency";
 import { useT } from "@/i18n";
 import type { BillRow } from "@/lib/api-types";
 import { currentMonth, formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { billMutations } from "@/lib/mutations";
 import { trpc } from "@/utils/trpc";
 
 const ALL = "__all__";
@@ -173,10 +173,10 @@ export default function BillsPage() {
   const showFallback = localMisses && !fallback.isLoading && fallbackRows.length > 0;
   const searchingFallback = localMisses && (fallback.isLoading || fallback.isFetching);
 
-  const unpayMutation = useMutation(trpc.bills.unpay.mutationOptions());
-  const wontPayMutation = useMutation(trpc.bills.setWontPay.mutationOptions());
-  const bulkPayMutation = useMutation(trpc.bills.bulkPay.mutationOptions());
-  const deleteMutation = useMutation(trpc.bills.delete.mutationOptions());
+  const unpayMutation = useMutation(billMutations.unpay());
+  const wontPayMutation = useMutation(billMutations.setWontPay());
+  const bulkPayMutation = useMutation(billMutations.bulkPay());
+  const deleteMutation = useMutation(billMutations.delete());
 
   const s = summary.data;
   const activeAccounts = (accounts.data ?? []).filter((a) => !a.archived);
@@ -222,7 +222,6 @@ export default function BillsPage() {
       {
         onSuccess: (result) => {
           toast.success(t("bills.unpaidToast", { name: result.bill.name }));
-          invalidateMoneyData();
         },
         onError: (error) => toast.error(error.message),
       },
@@ -230,6 +229,7 @@ export default function BillsPage() {
   }
 
   function setWontPayFor(bill: BillRow, wontPay: boolean) {
+    deselect(bill.id);
     wontPayMutation.mutate(
       { id: bill.id, wontPay },
       {
@@ -237,8 +237,6 @@ export default function BillsPage() {
           toast.success(
             t(wontPay ? "bills.wontPayToast" : "bills.willPayToast", { name: result.name }),
           );
-          deselect(bill.id);
-          invalidateMoneyData();
         },
         onError: (error) => toast.error(error.message),
       },
@@ -246,9 +244,11 @@ export default function BillsPage() {
   }
 
   function bulkPay() {
+    const ids = [...selected];
+    setSelected(new Set());
     bulkPayMutation.mutate(
       {
-        ids: [...selected],
+        ids,
         fromAccountId: payFromOverride === ALL ? undefined : payFromOverride,
       },
       {
@@ -270,8 +270,6 @@ export default function BillsPage() {
                   .join(" · ") || undefined,
             },
           );
-          setSelected(new Set());
-          invalidateMoneyData();
         },
         onError: (error) => toast.error(error.message),
       },
@@ -521,14 +519,12 @@ export default function BillsPage() {
         destructive
         onConfirm={() => {
           if (!deleting) return;
+          const bill = deleting;
+          setDeleting(null);
           deleteMutation.mutate(
-            { id: deleting.id },
+            { id: bill.id },
             {
-              onSuccess: () => {
-                toast.success(t("bills.deletedToast", { name: deleting.name }));
-                setDeleting(null);
-                invalidateMoneyData();
-              },
+              onSuccess: () => toast.success(t("bills.deletedToast", { name: bill.name })),
               onError: (error) => toast.error(error.message),
             },
           );

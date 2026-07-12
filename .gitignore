@@ -57,3 +57,4 @@ temp
 docs/sheets/
 docs/finances-sheet.xlsx
 .local/
+.claude/

@@ -19,7 +19,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Balance Point",
-  description: "Personal finance — accounts, bills, subscriptions and projections",
+  description:
+    "Personal finance — accounts, bills, subscriptions and projections",
+  appleWebApp: { title: "BalancePoint" },
 };
 
 export default async function RootLayout({
@@ -35,9 +37,13 @@ export default async function RootLayout({
 
   return (
     <html lang={initialLocale} suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
         <Providers>
-          <LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>
+          <LocaleProvider initialLocale={initialLocale}>
+            {children}
+          </LocaleProvider>
         </Providers>
       </body>
     </html>

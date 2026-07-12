@@ -48,9 +48,9 @@ export default function UserMenu({
   // hydration is done so the first client render matches the SSR HTML.
   if (!hydrated || isPending) {
     return variant === "sidebar" ? (
-      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-11 w-full rounded-xl" />
     ) : (
-      <Skeleton className="size-7 rounded-full" />
+      <Skeleton className="size-9 rounded-full md:size-7" />
     );
   }
 
@@ -67,7 +67,7 @@ export default function UserMenu({
   const avatar = (
     <span
       aria-hidden
-      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary"
+      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary"
     >
       {initialsOf(session.user.name)}
     </span>
@@ -80,7 +80,7 @@ export default function UserMenu({
           render={
             <Button
               variant="ghost"
-              className="h-9 w-full justify-center gap-2 px-1.5 lg:justify-start"
+              className="h-11 w-full justify-center gap-2 rounded-xl px-1.5 lg:justify-start lg:px-2"
             />
           }
         >

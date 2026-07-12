@@ -15,7 +15,19 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         {children}
         <ReactQueryDevtools />
       </QueryClientProvider>
-      <Toaster richColors />
+      {/*
+       * Toasts stack from the bottom, which on a phone is exactly where the
+       * floating tab bar sits — lift them clear of it (and of the home
+       * indicator) instead of letting them slide underneath.
+       */}
+      <Toaster
+        richColors
+        mobileOffset={{
+          bottom: "calc(var(--nav-occupies) + 0.5rem)",
+          left: "1rem",
+          right: "1rem",
+        }}
+      />
     </ThemeProvider>
   );
 }

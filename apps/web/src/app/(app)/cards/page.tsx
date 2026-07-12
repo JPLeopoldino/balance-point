@@ -42,8 +42,10 @@ import {
 } from "@balance-point/ui/components/select";
 import { Progress } from "@balance-point/ui/components/progress";
 import { Skeleton } from "@balance-point/ui/components/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@balance-point/ui/components/tabs";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CreditCardIcon, MoreHorizontalIcon } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -52,14 +54,22 @@ import { useT } from "@/i18n";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CurrencyChip } from "@/components/currency-chip";
 import { CurrencySelect } from "@/components/currency-select";
+import { KpiCard } from "@/components/kpi-card";
 import { MoneyInput } from "@/components/money-input";
+import { SubscriptionsTable } from "@/components/subscriptions/subscriptions-table";
 import type { CardRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
 import { invalidateMoneyData } from "@/lib/invalidate";
 import { trpc } from "@/utils/trpc";
 
+const NONE = "__none__";
+
 export default function CardsPage() {
   const t = useT();
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState(
+    searchParams.get("tab") === "subscriptions" ? "subscriptions" : "cards",
+  );
   const usage = useQuery(trpc.cards.usage.queryOptions());
   const cards = useQuery(trpc.cards.list.queryOptions());
   const recurring = useQuery(trpc.recurring.list.queryOptions());
@@ -69,24 +79,46 @@ export default function CardsPage() {
 
   const u = usage.data;
   const cardList = cards.data ?? [];
+  const archivedCards = cardList.filter((c) => c.archived);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold">{t("cards.title")}</h2>
-        {u ? (
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {t("cards.header", {
-              available: formatMoney(u.totalCreditAvailable, u.displayCurrency),
-              used: formatMoney(u.totalUsed, u.displayCurrency),
-              limit: formatMoney(u.totalLimit, u.displayCurrency),
-            })}
-          </span>
-        ) : null}
-        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-          {t("cards.addButton")}
-        </Button>
-      </div>
+      {/* Same KPI layout as the Bills screen (doc 09 §9.3) */}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label={t("cards.kpiLimit")}
+          value={u?.totalLimit ?? 0}
+          currency={u?.displayCurrency ?? "BRL"}
+          index={0}
+          loading={usage.isLoading}
+          sublabel={u ? t("cards.countCards", { count: u.cards.length }) : undefined}
+        />
+        <KpiCard
+          label={t("cards.kpiUsed")}
+          value={u?.totalUsed ?? 0}
+          currency={u?.displayCurrency ?? "BRL"}
+          index={1}
+          loading={usage.isLoading}
+          sublabel={t("cards.kpiUsedHint")}
+        />
+        <KpiCard
+          label={t("cards.kpiAvailable")}
+          value={u?.totalCreditAvailable ?? 0}
+          currency={u?.displayCurrency ?? "BRL"}
+          index={2}
+          emphasis
+          loading={usage.isLoading}
+          sublabel={t("cards.kpiAvailableHint")}
+        />
+        <KpiCard
+          label={t("cards.kpiCommitted")}
+          value={u?.totalCommittedMonthly ?? 0}
+          currency={u?.displayCurrency ?? "BRL"}
+          index={3}
+          loading={usage.isLoading}
+          sublabel={t("cards.kpiCommittedHint")}
+        />
+      </section>
 
       {u?.warnings.map((warning) => (
         <p key={warning} className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -94,100 +126,158 @@ export default function CardsPage() {
         </p>
       ))}
 
-      {usage.isLoading ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {[0, 1].map((i) => (
-            <Skeleton key={i} className="h-44 w-full" />
-          ))}
+      <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "cards")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <TabsList>
+            <TabsTrigger value="cards">{t("cards.title")}</TabsTrigger>
+            <TabsTrigger value="subscriptions">{t("nav.subscriptions")}</TabsTrigger>
+          </TabsList>
+          {tab === "cards" ? (
+            <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+              {t("cards.addButton")}
+            </Button>
+          ) : null}
         </div>
-      ) : (u?.cards.length ?? 0) === 0 ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <CreditCardIcon />
-            </EmptyMedia>
-            <EmptyTitle>{t("cards.emptyTitle")}</EmptyTitle>
-            <EmptyDescription>{t("cards.emptyDescription")}</EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button onClick={() => setCreating(true)}>{t("cards.emptyAdd")}</Button>
-          </EmptyContent>
-        </Empty>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {u?.cards.map((cardUsage) => {
-            const card = cardList.find((c) => c.id === cardUsage.id);
-            const usedPct =
-              cardUsage.limit > 0
-                ? Math.min(100, Math.round((cardUsage.used / cardUsage.limit) * 100))
-                : 0;
-            const charges = (recurring.data ?? []).filter(
-              (r) => r.creditCardId === cardUsage.id && r.active,
-            );
-            const openBills = (cardCharges.data ?? []).filter(
-              (b) => b.creditCardId === cardUsage.id,
-            );
-            return (
-              <Card key={cardUsage.id} size="sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CreditCardIcon
-                      className={`size-4 ${cardUsage.color ? "" : "text-muted-foreground"}`}
-                      style={cardUsage.color ? { color: cardUsage.color } : undefined}
-                    />
-                    <span className="truncate">{cardUsage.name}</span>
-                    <CurrencyChip currency={cardUsage.currency} />
-                  </CardTitle>
-                  {card?.bankAccount ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t("cards.onAccount", { name: card.bankAccount.name })}
-                    </p>
-                  ) : null}
-                  {card ? (
-                    <CardAction>
-                      <CardMenu card={card} />
-                    </CardAction>
-                  ) : null}
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  <div className="flex justify-between text-xs tabular-nums">
-                    <span className="text-muted-foreground">
-                      {t("cards.limit", { amount: formatMoney(cardUsage.limit, cardUsage.currency) })}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {t("cards.used", { amount: formatMoney(cardUsage.used, cardUsage.currency) })}
-                    </span>
+
+        <TabsContent value="cards" className="flex flex-col gap-3">
+          {usage.isLoading ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {[0, 1].map((i) => (
+                <Skeleton key={i} className="h-44 w-full" />
+              ))}
+            </div>
+          ) : (u?.cards.length ?? 0) === 0 && archivedCards.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <CreditCardIcon />
+                </EmptyMedia>
+                <EmptyTitle>{t("cards.emptyTitle")}</EmptyTitle>
+                <EmptyDescription>{t("cards.emptyDescription")}</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button onClick={() => setCreating(true)}>{t("cards.emptyAdd")}</Button>
+              </EmptyContent>
+            </Empty>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {u?.cards.map((cardUsage) => {
+                  const card = cardList.find((c) => c.id === cardUsage.id);
+                  const usedPct =
+                    cardUsage.limit > 0
+                      ? Math.min(100, Math.round((cardUsage.used / cardUsage.limit) * 100))
+                      : 0;
+                  const charges = (recurring.data ?? []).filter(
+                    (r) => r.creditCardId === cardUsage.id && r.active,
+                  );
+                  const openBills = (cardCharges.data ?? []).filter(
+                    (b) => b.creditCardId === cardUsage.id,
+                  );
+                  return (
+                    <Card key={cardUsage.id} size="sm">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <CreditCardIcon
+                            className={`size-4 ${cardUsage.color ? "" : "text-muted-foreground"}`}
+                            style={cardUsage.color ? { color: cardUsage.color } : undefined}
+                          />
+                          <span className="truncate">{cardUsage.name}</span>
+                          <CurrencyChip currency={cardUsage.currency} />
+                        </CardTitle>
+                        {card?.bankAccount ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t("cards.onAccount", { name: card.bankAccount.name })}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">{t("cards.noAccount")}</p>
+                        )}
+                        {card ? (
+                          <CardAction>
+                            <CardMenu card={card} />
+                          </CardAction>
+                        ) : null}
+                      </CardHeader>
+                      <CardContent className="flex flex-col gap-2">
+                        <div className="flex justify-between text-xs tabular-nums">
+                          <span className="text-muted-foreground">
+                            {t("cards.limit", { amount: formatMoney(cardUsage.limit, cardUsage.currency) })}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {t("cards.used", { amount: formatMoney(cardUsage.used, cardUsage.currency) })}
+                          </span>
+                        </div>
+                        <Progress value={usedPct} aria-label={t("cards.usedPctAria", { pct: usedPct })} />
+                        <div className="flex items-baseline justify-between">
+                          <span
+                            className={`text-lg font-semibold tabular-nums ${cardUsage.available < 0 ? "text-destructive" : ""}`}
+                          >
+                            {t("cards.free", {
+                              amount: formatMoney(cardUsage.available, cardUsage.currency),
+                            })}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground tabular-nums">
+                            {t("cards.committedPerMonth", {
+                              amount: formatMoney(cardUsage.committedMonthly, cardUsage.currency),
+                            })}
+                          </span>
+                        </div>
+                        {charges.length > 0 || openBills.length > 0 ? (
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {t("cards.charges", {
+                              list: [...charges.map((c) => c.name), ...openBills.map((b) => b.name)].join(", "),
+                            })}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">{t("cards.noCharges")}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {archivedCards.length > 0 ? (
+                <>
+                  <h3 className="mt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    {t("common.archived")}
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3 opacity-60 md:grid-cols-2">
+                    {archivedCards.map((card) => (
+                      <Card key={card.id} size="sm">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <CreditCardIcon className="size-4 text-muted-foreground" />
+                            <span className="truncate">{card.name}</span>
+                            <CurrencyChip currency={card.currency} />
+                          </CardTitle>
+                          {card.bankAccount ? (
+                            <p className="text-xs text-muted-foreground">
+                              {t("cards.onAccount", { name: card.bankAccount.name })}
+                            </p>
+                          ) : null}
+                          <CardAction>
+                            <CardMenu card={card} />
+                          </CardAction>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-xs text-muted-foreground tabular-nums">
+                            {t("cards.limit", { amount: formatMoney(card.creditLimit, card.currency) })}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
-                  <Progress value={usedPct} aria-label={t("cards.usedPctAria", { pct: usedPct })} />
-                  <div className="flex items-baseline justify-between">
-                    <span
-                      className={`text-lg font-semibold tabular-nums ${cardUsage.available < 0 ? "text-destructive" : ""}`}
-                    >
-                      {t("cards.free", {
-                        amount: formatMoney(cardUsage.available, cardUsage.currency),
-                      })}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {t("cards.committedPerMonth", {
-                        amount: formatMoney(cardUsage.committedMonthly, cardUsage.currency),
-                      })}
-                    </span>
-                  </div>
-                  {charges.length > 0 || openBills.length > 0 ? (
-                    <p className="truncate text-[11px] text-muted-foreground">
-                      {t("cards.charges", {
-                        list: [...charges.map((c) => c.name), ...openBills.map((b) => b.name)].join(", "),
-                      })}
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">{t("cards.noCharges")}</p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                </>
+              ) : null}
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="subscriptions">
+          <SubscriptionsTable />
+        </TabsContent>
+      </Tabs>
 
       <CardFormDialog
         open={creating || editing !== null}
@@ -284,7 +374,7 @@ function CardFormDialog({
   const accounts = useQuery({ ...trpc.accounts.list.queryOptions(), enabled: open });
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
-  const [bankAccountId, setBankAccountId] = useState("");
+  const [bankAccountId, setBankAccountId] = useState(NONE);
   const [limit, setLimit] = useState<Money | null>(null);
   const [currency, setCurrency] = useState<Currency>("BRL");
   const [closingDay, setClosingDay] = useState("");
@@ -300,7 +390,7 @@ function CardFormDialog({
     if (open) {
       setName(card?.name ?? "");
       setBrand(card?.brand ?? "");
-      setBankAccountId(card?.bankAccountId ?? "");
+      setBankAccountId(card?.bankAccountId ?? NONE);
       setLimit(card?.creditLimit ?? null);
       setCurrency(card?.currency ?? "BRL");
       setClosingDay(card?.closingDay ? String(card.closingDay) : "");
@@ -311,10 +401,16 @@ function CardFormDialog({
 
   const create = useMutation(trpc.cards.create.mutationOptions());
   const update = useMutation(trpc.cards.update.mutationOptions());
-  const canSubmit = name.trim().length > 0 && bankAccountId && limit !== null && limit > 0;
+  const canSubmit = name.trim().length > 0 && limit !== null && limit > 0;
+
+  const accountItems = [
+    { value: NONE, label: t("cards.noAccountOption") },
+    ...activeAccounts.map((a) => ({ value: a.id, label: a.name })),
+  ];
 
   async function submit() {
     if (!canSubmit || limit === null) return;
+    const hostAccountId = bankAccountId === NONE ? null : bankAccountId;
     const dayFields = {
       closingDay: closingDay ? Number(closingDay) : undefined,
       dueDay: dueDay ? Number(dueDay) : undefined,
@@ -325,7 +421,7 @@ function CardFormDialog({
           id: card.id,
           name: name.trim(),
           brand: brand.trim() || null,
-          bankAccountId,
+          bankAccountId: hostAccountId,
           creditLimit: limit,
           currency,
           closingDay: dayFields.closingDay ?? null,
@@ -337,7 +433,7 @@ function CardFormDialog({
         await create.mutateAsync({
           name: name.trim(),
           brand: brand.trim() || undefined,
-          bankAccountId,
+          bankAccountId: hostAccountId ?? undefined,
           creditLimit: limit,
           currency,
           color: color ?? undefined,
@@ -376,14 +472,15 @@ function CardFormDialog({
             <div className="grid gap-1.5">
               <Label>{t("cards.hostAccount")}</Label>
               <Select
-                value={bankAccountId || null}
-                onValueChange={(v) => setBankAccountId((v as string) ?? "")}
-                items={activeAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                value={bankAccountId}
+                onValueChange={(v) => setBankAccountId((v as string) ?? NONE)}
+                items={accountItems}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("cards.chooseAccount")} />
+                  <SelectValue placeholder={t("cards.noAccountOption")} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NONE}>{t("cards.noAccountOption")}</SelectItem>
                   {activeAccounts.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.name}
@@ -411,6 +508,7 @@ function CardFormDialog({
               <Input id="card-due" type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
             </div>
           </div>
+          <p className="text-[11px] text-muted-foreground">{t("cards.statementHint")}</p>
           <div className="grid gap-1.5">
             <Label>{t("common.color")}</Label>
             <ColorPicker

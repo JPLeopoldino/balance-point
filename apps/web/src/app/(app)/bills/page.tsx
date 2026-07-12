@@ -18,11 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@balance-point/ui/components/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@balance-point/ui/components/tabs";
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import type { ColumnFiltersState } from "@tanstack/react-table";
-import { PlusIcon, ReceiptIcon, RefreshCcwIcon, SearchIcon } from "lucide-react";
+import { PlusIcon, ReceiptIcon, SearchIcon } from "lucide-react";
 import type { Route } from "next";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -44,6 +44,8 @@ import {
 } from "@/components/bills/date-range-filter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { KpiCard } from "@/components/kpi-card";
+import type { RecurringPrefill } from "@/components/recurring/recurring-form-dialog";
+import { RecurringTemplates } from "@/components/recurring/recurring-templates";
 import { useDisplayCurrency } from "@/hooks/use-display-currency";
 import { useT } from "@/i18n";
 import type { BillRow } from "@/lib/api-types";
@@ -82,6 +84,28 @@ export default function BillsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Recurring templates live in a tab here (?tab=recurring deep links).
+  const [tab, setTab] = useState(
+    searchParams.get("tab") === "recurring" ? "recurring" : "bills",
+  );
+  // The bill form's "make recurring" pushes ?tab=recurring onto this same
+  // route — follow the URL when it changes.
+  useEffect(() => {
+    setTab(searchParams.get("tab") === "recurring" ? "recurring" : "bills");
+  }, [searchParams]);
+  // "Make recurring" prefill forwarded by the bill form (doc 09 §9.3).
+  const recurringPrefill = useMemo<RecurringPrefill | undefined>(() => {
+    const name = searchParams.get("name");
+    const amount = searchParams.get("amount");
+    const currencyParam = searchParams.get("currency");
+    if (!name && !amount) return undefined;
+    return {
+      name: name ?? undefined,
+      amount: amount && /^\d+$/.test(amount) ? Number(amount) : undefined,
+      currency: currencyParam === "USD" ? "USD" : "BRL",
+    };
+  }, [searchParams]);
 
   // Due-date window, persisted in the URL (?from/?to; legacy ?month accepted).
   const [range, setRange] = useState<BillsRange>(() => {
@@ -287,6 +311,13 @@ export default function BillsPage() {
 
   return (
     <div className="flex flex-col gap-4 pb-20">
+      <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "bills")}>
+        <TabsList>
+          <TabsTrigger value="bills">{t("nav.bills")}</TabsTrigger>
+          <TabsTrigger value="recurring">{t("nav.recurring")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="bills" className="flex flex-col gap-4">
       {/* Period roll-up in the display currency (doc 04 §4.4) */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
@@ -366,12 +397,6 @@ export default function BillsPage() {
         </Select>
         <DateRangeFilter value={range} onChange={updateRange} />
         <div className="ml-auto flex items-center gap-2">
-          <Link href="/recurring">
-            <Button variant="outline" size="sm">
-              <RefreshCcwIcon data-icon="inline-start" />
-              <span className="hidden md:inline">{t("bills.emptyRecurring")}</span>
-            </Button>
-          </Link>
           <Button size="sm" onClick={() => setCreating(true)}>
             <PlusIcon data-icon="inline-start" /> {t("nav.addBill")}
           </Button>
@@ -392,9 +417,9 @@ export default function BillsPage() {
           <EmptyContent>
             <div className="flex gap-2">
               <Button onClick={() => setCreating(true)}>{t("bills.emptyAdd")}</Button>
-              <Link href="/recurring">
-                <Button variant="outline">{t("bills.emptyRecurring")}</Button>
-              </Link>
+              <Button variant="outline" onClick={() => setTab("recurring")}>
+                {t("bills.emptyRecurring")}
+              </Button>
             </div>
           </EmptyContent>
         </Empty>
@@ -466,6 +491,12 @@ export default function BillsPage() {
           </div>
         </div>
       ) : null}
+        </TabsContent>
+
+        <TabsContent value="recurring">
+          <RecurringTemplates prefill={recurringPrefill} />
+        </TabsContent>
+      </Tabs>
 
       <BillFormDialog
         open={creating || editing !== null}

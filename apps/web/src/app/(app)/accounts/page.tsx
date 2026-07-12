@@ -63,7 +63,6 @@ export default function AccountsPage() {
   const accounts = useQuery(trpc.accounts.list.queryOptions());
   const [editing, setEditing] = useState<AccountRow | null>(null);
   const [creating, setCreating] = useState(false);
-  const accrue = useMutation(trpc.accounts.accrueYield.mutationOptions());
 
   const rows = accounts.data ?? [];
   const active = rows.filter((a) => !a.archived);
@@ -73,28 +72,10 @@ export default function AccountsPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold">{t("accounts.title")}</h2>
-        <div className="ml-auto flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={accrue.isPending}
-            onClick={() =>
-              accrue.mutate(undefined, {
-                onSuccess: (result) => {
-                  if (result.accrued.length === 0) toast.info(t("accounts.noYieldDue"));
-                  else toast.success(t("accounts.accruedToast", { count: result.accrued.length }));
-                  invalidateMoneyData();
-                },
-                onError: (error) => toast.error(error.message),
-              })
-            }
-          >
-            {t("accounts.accrueYield")}
-          </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            {t("accounts.addButton")}
-          </Button>
-        </div>
+        {/* Yield accrues automatically every day — no manual trigger. */}
+        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+          {t("accounts.addButton")}
+        </Button>
       </div>
 
       {accounts.isLoading ? (

@@ -10,14 +10,11 @@ import {
 } from "@balance-point/ui/components/sheet";
 import {
   CreditCardIcon,
-  HistoryIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
   MenuIcon,
   PlusIcon,
   ReceiptIcon,
-  RefreshCcwIcon,
-  RepeatIcon,
   TargetIcon,
   TrendingUpIcon,
 } from "lucide-react";
@@ -30,17 +27,15 @@ import { CurrencySwitcher } from "@/components/currency-switcher";
 import UserMenu from "@/components/user-menu";
 import { useT } from "@/i18n";
 
+// Subscriptions live inside Cards, recurring templates inside Bills and the
+// activity feed inside Settings (user-menu popover) — no standalone screens.
 const NAV = [
   { href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboardIcon },
   { href: "/bills", labelKey: "nav.bills", icon: ReceiptIcon },
   { href: "/accounts", labelKey: "nav.accounts", icon: LandmarkIcon },
   { href: "/cards", labelKey: "nav.cards", icon: CreditCardIcon },
-  { href: "/subscriptions", labelKey: "nav.subscriptions", icon: RepeatIcon },
-  { href: "/recurring", labelKey: "nav.recurring", icon: RefreshCcwIcon },
   { href: "/projection", labelKey: "nav.projection", icon: TrendingUpIcon },
   { href: "/plans", labelKey: "nav.plans", icon: TargetIcon },
-  { href: "/activity", labelKey: "nav.activity", icon: HistoryIcon },
-  // Settings lives in the user menu popover, not in the nav.
 ] as const;
 
 const MOBILE_PRIMARY = NAV.slice(0, 4);

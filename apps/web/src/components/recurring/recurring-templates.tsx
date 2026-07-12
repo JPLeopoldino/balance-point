@@ -64,7 +64,6 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
   const templates = useQuery(trpc.recurring.list.queryOptions({ kind: "bill" }));
   const toggle = useMutation(trpc.recurring.toggleActive.mutationOptions());
   const del = useMutation(trpc.recurring.delete.mutationOptions());
-  const generateAll = useMutation(trpc.recurring.generate.mutationOptions());
 
   const [creating, setCreating] = useState(() => Boolean(prefill));
   const [editing, setEditing] = useState<RecurringRow | null>(null);
@@ -77,34 +76,9 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-muted-foreground">{t("recurring.intro")}</p>
-        <div className="ml-auto flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={generateAll.isPending}
-            onClick={() =>
-              generateAll.mutate(
-                {},
-                {
-                  onSuccess: (result) => {
-                    toast.success(
-                      result.created > 0
-                        ? t("recurring.generatedToast", { count: result.created })
-                        : t("recurring.nothingToGenerate"),
-                    );
-                    invalidateMoneyData();
-                  },
-                  onError: (error) => toast.error(error.message),
-                },
-              )
-            }
-          >
-            {generateAll.isPending ? t("recurring.generating") : t("recurring.generate")}
-          </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            {t("recurring.addButton")}
-          </Button>
-        </div>
+        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+          {t("recurring.addButton")}
+        </Button>
       </div>
 
       {templates.isLoading ? (
@@ -289,7 +263,10 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
   );
 }
 
-/** Idempotent generation preview (doc 09 §9.6): shows what would be created. */
+/**
+ * Upcoming-months preview (doc 09 §9.6). Read-only now: bills materialize
+ * automatically (on template save and daily), so there is nothing to trigger.
+ */
 function GeneratePreviewDialog({
   template,
   onClose,
@@ -303,10 +280,8 @@ function GeneratePreviewDialog({
     ...trpc.recurring.preview.queryOptions({ id: template?.id ?? "" }),
     enabled: template !== null,
   });
-  const generate = useMutation(trpc.recurring.generate.mutationOptions());
 
   const rows = preview.data ?? [];
-  const missing = rows.filter((r) => !r.alreadyExists);
 
   return (
     <Dialog open={template !== null} onOpenChange={(open) => !open && onClose()}>
@@ -349,27 +324,6 @@ function GeneratePreviewDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             {t("common.close")}
-          </Button>
-          <Button
-            disabled={missing.length === 0 || generate.isPending}
-            onClick={() =>
-              template &&
-              generate.mutate(
-                { id: template.id },
-                {
-                  onSuccess: (result) => {
-                    toast.success(t("recurring.generatedN", { count: result.created }));
-                    invalidateMoneyData();
-                    onClose();
-                  },
-                  onError: (error) => toast.error(error.message),
-                },
-              )
-            }
-          >
-            {generate.isPending
-              ? t("recurring.generating")
-              : t("recurring.generateN", { count: missing.length })}
           </Button>
         </DialogFooter>
       </DialogContent>

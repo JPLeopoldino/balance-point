@@ -32,10 +32,13 @@ import { Switch } from "@balance-point/ui/components/switch";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Trash2Icon } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@balance-point/ui/components/tabs";
+
+import { ActivityFeed } from "@/components/activity/activity-feed";
 import { ColorPicker, PRESET_COLORS } from "@/components/color-picker";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { type Locale, useFormat, useLocale, useT } from "@/i18n";
@@ -50,14 +53,30 @@ import { queryClient, trpc } from "@/utils/trpc";
 
 export default function SettingsPage() {
   const t = useT();
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get("tab") === "activity" ? "activity" : "general");
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-      <h2 className="text-base font-semibold">{t("settings.title")}</h2>
-      <ProfileSection />
-      <CurrencySection />
-      <PreferencesSection />
-      <IncomeSection />
-      <CategoriesSection />
+      <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "general")}>
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-semibold">{t("settings.title")}</h2>
+          <TabsList>
+            <TabsTrigger value="general">{t("settings.tabGeneral")}</TabsTrigger>
+            <TabsTrigger value="activity">{t("nav.activity")}</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="general" className="flex flex-col gap-4">
+          <ProfileSection />
+          <CurrencySection />
+          <PreferencesSection />
+          <IncomeSection />
+          <CategoriesSection />
+        </TabsContent>
+        <TabsContent value="activity">
+          <ActivityFeed />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

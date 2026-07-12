@@ -380,3 +380,71 @@ Bills/pay flow. Committing is reversible only by deleting the generated unpaid b
    stored; a card references a bank account owned by the same user.
 9. A bill with `creditCardId` set is a **card charge**: it is not settled via `bills.pay`
    and never deducts from a checking balance directly (§4.3, §4.5).
+
+---
+
+## 4.16 Rework 2026-07-12 — cards, statements & automation _(supersedes clauses above)_
+
+Business-rule changes applied on 2026-07-12. Where a clause below conflicts with
+§4.1–§4.15, **this section wins**.
+
+### a) Cards may live without a bank account
+
+`CREDIT_CARD.bankAccountId` is **nullable** (FK `set null`). Deleting a bank account
+detaches its cards (or `reassignToId` moves them). Invariant 8's "a card references a
+bank account" is dropped; the ownership rule stays.
+
+### b) Paying without a bank & payment-time discount
+
+- `bills.pay` accepts `withoutAccount: true` (or resolves no account at all): the bill
+  is marked paid with **no debit anywhere**; `paidWithoutAccount=true`,
+  `paidFromAccountId=null`. Un-paying such a bill refunds nothing. Invariant 2 becomes:
+  `paidAt` **iff** `paid=true`; `paidFromAccountId` set iff paid from a bank.
+- `bills.pay` accepts an optional `amount` (discount): it **replaces** the bill's
+  `amount` before the debit is computed. The old value is not kept.
+- "Choose an account to pay from" is no longer an error — a bill with no source
+  account simply settles without a debit (also in `bulkPay`).
+
+### c) Card charges materialize; faturas are real bills
+
+- Recurring templates with `creditCardId` (subscriptions and card recurrences) **do**
+  generate bills now — one card charge (`creditCardId` set) for the **current month
+  only** (never months ahead, so open charges don't eat the limit early).
+- **Used credit = open unsettled card charges** (`paid=false`, `settledByBillId null`).
+  `committedMonthly` remains a display metric only (§4.3 formula superseded).
+- Every active card with a `dueDay` gets an auto-generated **statement bill (fatura)**
+  per month: `statementCardId` marks it; due on `dueDay`, cutoff on the `closingDay`
+  occurrence at/just before it (or the due date itself). Its amount tracks the sum of
+  covered open charges (converted to the card currency) while unpaid; an unpaid fatura
+  left with nothing to cover is deleted. One fatura per `(card, month)`.
+- A fatura **covers** the card's open, unsettled charges with `dueDate <= cutoff` not
+  already covered by an older open fatura of the same card. **Paying the fatura marks
+  the covered charges paid** (`settledByBillId = fatura.id`) and thereby frees the
+  limit; un-paying it reopens them. Settled charges cannot be un-paid directly.
+- Card charges are never overdue/payable in the UI — status **"Na fatura"** while
+  open, "Paga" once settled.
+
+### d) Daily automation (no manual buttons)
+
+Lazily on the first money query of each calendar day (gate:
+`USER_SETTINGS.lastAutoRunDay`, claimed atomically):
+
+1. **Yield accrual** (§4.11 catch-up) — the "Accrue yield" button/procedure is gone.
+2. **Recurring generation** (§4.9) for all active templates through the projection
+   horizon (card templates: current month only) — the "Generate bills"
+   button/procedure is gone. Templates also materialize immediately on
+   create/update/re-activate.
+3. **Subscription auto-pay**: unpaid, non-card, subscription-template bills with
+   `dueDate <= today` are paid automatically from their source account (or without a
+   bank when none). Card subscriptions settle via the fatura instead.
+
+Additionally, card statements are ensured/refreshed on every bills/cards/dashboard
+query and after any mutation that touches card charges.
+
+### e) Screens
+
+Subscriptions render inside **Cards** (tab), recurring templates inside **Bills**
+(tab), the activity feed inside **Settings** (tab); `/subscriptions`, `/recurring`
+and `/activity` redirect. The Cards screen opens with the same KPI-card layout as
+Bills (limit / used / available / committed-per-month). Cards can be archived and
+unarchived from an "Archived" section like bank accounts.

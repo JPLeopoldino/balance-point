@@ -23,7 +23,8 @@ import { toast } from "sonner";
 
 import { useT } from "@/i18n";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { billMutations } from "@/lib/mutations";
+import { withCallbacks } from "@/lib/optimistic";
 import { trpc } from "@/utils/trpc";
 
 export interface PayableBill {
@@ -53,7 +54,24 @@ export function PayBillButton({
   const t = useT();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [accountId, setAccountId] = useState("");
-  const pay = useMutation(trpc.bills.pay.mutationOptions());
+  // Callbacks live on the hook (not on `mutate`): the optimistic patch flips
+  // the bill to paid, which unmounts this button before the server answers.
+  const pay = useMutation(
+    withCallbacks(billMutations.pay(), {
+      onSuccess: (result) => {
+        toast.success(
+          t("bills.paidToast", {
+            name: result.bill.name,
+            amount: formatMoney(result.bill.amount, result.bill.currency),
+          }),
+          { description: result.warning },
+        );
+        setPickerOpen(false);
+        onPaid?.();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   const accounts = useQuery({ ...trpc.accounts.list.queryOptions(), enabled: pickerOpen });
   const activeAccounts = useMemo(
     () => (accounts.data ?? []).filter((a) => !a.archived),
@@ -61,24 +79,7 @@ export function PayBillButton({
   );
 
   function doPay(fromAccountId?: string) {
-    pay.mutate(
-      { id: bill.id, fromAccountId },
-      {
-        onSuccess: (result) => {
-          toast.success(
-            t("bills.paidToast", {
-              name: result.bill.name,
-              amount: formatMoney(result.bill.amount, result.bill.currency),
-            }),
-            { description: result.warning },
-          );
-          setPickerOpen(false);
-          invalidateMoneyData();
-          onPaid?.();
-        },
-        onError: (error) => toast.error(error.message),
-      },
-    );
+    pay.mutate({ id: bill.id, fromAccountId });
   }
 
   return (

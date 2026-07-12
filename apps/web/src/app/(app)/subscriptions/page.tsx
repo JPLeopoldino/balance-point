@@ -41,7 +41,7 @@ import {
 import { useDisplayCurrency } from "@/hooks/use-display-currency";
 import type { RecurringRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { recurringMutations } from "@/lib/mutations";
 import { trpc } from "@/utils/trpc";
 
 export default function SubscriptionsPage() {
@@ -56,8 +56,8 @@ export default function SubscriptionsPage() {
         : t("subscriptions.everyNMonths", { count: r.intervalMonths });
   const subs = useQuery(trpc.recurring.list.queryOptions({ kind: "subscription" }));
   const totals = useQuery(trpc.recurring.subscriptionTotals.queryOptions());
-  const toggle = useMutation(trpc.recurring.toggleActive.mutationOptions());
-  const del = useMutation(trpc.recurring.delete.mutationOptions());
+  const toggle = useMutation(recurringMutations.toggleActive());
+  const del = useMutation(recurringMutations.delete());
   const [editing, setEditing] = useState<RecurringRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<RecurringRow | null>(null);
@@ -151,10 +151,7 @@ export default function SubscriptionsPage() {
                         onCheckedChange={(active) =>
                           toggle.mutate(
                             { id: row.id, active },
-                            {
-                              onSuccess: () => invalidateMoneyData(),
-                              onError: (error) => toast.error(error.message),
-                            },
+                            { onError: (error) => toast.error(error.message) },
                           )
                         }
                       />
@@ -205,14 +202,12 @@ export default function SubscriptionsPage() {
         destructive
         onConfirm={() => {
           if (!deleting) return;
+          const sub = deleting;
+          setDeleting(null);
           del.mutate(
-            { id: deleting.id, deleteFutureBills: false },
+            { id: sub.id, deleteFutureBills: false },
             {
-              onSuccess: () => {
-                toast.success(t("subscriptions.deletedToast", { name: deleting.name }));
-                setDeleting(null);
-                invalidateMoneyData();
-              },
+              onSuccess: () => toast.success(t("subscriptions.deletedToast", { name: sub.name })),
               onError: (error) => toast.error(error.message),
             },
           );

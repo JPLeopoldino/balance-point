@@ -45,8 +45,13 @@ import { MoneyInput } from "@/components/money-input";
 import { authClient } from "@/lib/auth-client";
 import type { CategoryRow, IncomeRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
-import { queryClient, trpc } from "@/utils/trpc";
+import {
+  categoryMutations,
+  fxMutations,
+  incomeMutations,
+  settingsMutations,
+} from "@/lib/mutations";
+import { trpc } from "@/utils/trpc";
 
 export default function SettingsPage() {
   const t = useT();
@@ -102,9 +107,9 @@ function CurrencySection() {
   const t = useT();
   const settings = useQuery(trpc.settings.get.queryOptions());
   const rates = useQuery(trpc.fx.list.queryOptions());
-  const updateSettings = useMutation(trpc.settings.update.mutationOptions());
-  const setRate = useMutation(trpc.fx.setRate.mutationOptions());
-  const refreshRate = useMutation(trpc.fx.refresh.mutationOptions());
+  const updateSettings = useMutation(settingsMutations.update());
+  const setRate = useMutation(fxMutations.setRate());
+  const refreshRate = useMutation(fxMutations.refresh());
   const [rateDraft, setRateDraft] = useState("");
 
   const usdBrl = (rates.data ?? []).find((r) => r.base === "USD" && r.quote === "BRL");
@@ -120,13 +125,7 @@ function CurrencySection() {
   function saveDisplaySetting(key: "baseCurrency" | "displayCurrency", value: Currency) {
     updateSettings.mutate(
       { [key]: value },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: trpc.settings.pathKey() });
-          invalidateMoneyData();
-        },
-        onError: (error) => toast.error(error.message),
-      },
+      { onError: (error) => toast.error(error.message) },
     );
   }
 
@@ -178,11 +177,7 @@ function CurrencySection() {
               setRate.mutate(
                 { base: "USD", quote: "BRL", rate: Math.round(parsed * FX_SCALE) },
                 {
-                  onSuccess: () => {
-                    toast.success(t("settings.rateSaved", { rate: parsed }));
-                    void queryClient.invalidateQueries({ queryKey: trpc.fx.pathKey() });
-                    invalidateMoneyData();
-                  },
+                  onSuccess: () => toast.success(t("settings.rateSaved", { rate: parsed })),
                   onError: (error) => toast.error(error.message),
                 },
               );
@@ -202,8 +197,6 @@ function CurrencySection() {
                       source: row.source,
                     }),
                   );
-                  void queryClient.invalidateQueries({ queryKey: trpc.fx.pathKey() });
-                  invalidateMoneyData();
                 },
                 onError: (error) => toast.error(error.message),
               })
@@ -234,7 +227,7 @@ function PreferencesSection() {
   const t = useT();
   const { setLocale } = useLocale();
   const settings = useQuery(trpc.settings.get.queryOptions());
-  const update = useMutation(trpc.settings.update.mutationOptions());
+  const update = useMutation(settingsMutations.update());
   const { setTheme } = useTheme();
   const [horizon, setHorizon] = useState("10");
   const [additional, setAdditional] = useState<Money | null>(0);
@@ -248,11 +241,7 @@ function PreferencesSection() {
 
   function save(input: Parameters<typeof update.mutate>[0]) {
     update.mutate(input, {
-      onSuccess: () => {
-        toast.success(t("settings.preferencesSaved"));
-        void queryClient.invalidateQueries({ queryKey: trpc.settings.pathKey() });
-        invalidateMoneyData();
-      },
+      onSuccess: () => toast.success(t("settings.preferencesSaved")),
       onError: (error) => toast.error(error.message),
     });
   }
@@ -353,8 +342,8 @@ function PreferencesSection() {
 function IncomeSection() {
   const t = useT();
   const incomes = useQuery(trpc.income.list.queryOptions());
-  const update = useMutation(trpc.income.update.mutationOptions());
-  const del = useMutation(trpc.income.delete.mutationOptions());
+  const update = useMutation(incomeMutations.update());
+  const del = useMutation(incomeMutations.delete());
   const [editing, setEditing] = useState<IncomeRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<IncomeRow | null>(null);
@@ -374,12 +363,7 @@ function IncomeSection() {
               onCheckedChange={(active) =>
                 update.mutate(
                   { id: income.id, active },
-                  {
-                    onSuccess: () => {
-                      void queryClient.invalidateQueries({ queryKey: trpc.income.pathKey() });
-                      invalidateMoneyData();
-                    },
-                  },
+                  { onError: (error) => toast.error(error.message) },
                 )
               }
             />
@@ -435,15 +419,12 @@ function IncomeSection() {
         destructive
         onConfirm={() => {
           if (!deleting) return;
+          const income = deleting;
+          setDeleting(null);
           del.mutate(
-            { id: deleting.id },
+            { id: income.id },
             {
-              onSuccess: () => {
-                toast.success(t("settings.deletedToast", { name: deleting.name }));
-                setDeleting(null);
-                void queryClient.invalidateQueries({ queryKey: trpc.income.pathKey() });
-                invalidateMoneyData();
-              },
+              onSuccess: () => toast.success(t("settings.deletedToast", { name: income.name })),
               onError: (error) => toast.error(error.message),
             },
           );
@@ -463,17 +444,12 @@ function IncomeOverrides() {
   const { formatMonth } = useFormat();
   const settings = useQuery(trpc.settings.get.queryOptions());
   const overrides = useQuery(trpc.income.listOverrides.queryOptions({}));
-  const setOverride = useMutation(trpc.income.setOverride.mutationOptions());
-  const clearOverride = useMutation(trpc.income.clearOverride.mutationOptions());
+  const setOverride = useMutation(incomeMutations.setOverride());
+  const clearOverride = useMutation(incomeMutations.clearOverride());
   const [month, setMonth] = useState("");
   const [amount, setAmount] = useState<Money | null>(null);
 
   const displayCurrency = settings.data?.displayCurrency ?? "BRL";
-
-  function refresh() {
-    void queryClient.invalidateQueries({ queryKey: trpc.income.pathKey() });
-    void queryClient.invalidateQueries({ queryKey: trpc.projection.pathKey() });
-  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -495,10 +471,8 @@ function IncomeOverrides() {
               clearOverride.mutate(
                 { month: override.month },
                 {
-                  onSuccess: () => {
-                    toast.success(t("settings.overrideRemoved", { month: formatMonth(override.month) }));
-                    refresh();
-                  },
+                  onSuccess: () =>
+                    toast.success(t("settings.overrideRemoved", { month: formatMonth(override.month) })),
                   onError: (error) => toast.error(error.message),
                 },
               )
@@ -544,7 +518,6 @@ function IncomeOverrides() {
                   toast.success(t("settings.overrideSet", { month: formatMonth(month) }));
                   setMonth("");
                   setAmount(null);
-                  refresh();
                 },
                 onError: (error) => toast.error(error.message),
               },
@@ -583,31 +556,28 @@ function IncomeFormDialog({
     }
   }, [open, income]);
 
-  const create = useMutation(trpc.income.create.mutationOptions());
-  const update = useMutation(trpc.income.update.mutationOptions());
+  const create = useMutation(incomeMutations.create());
+  const update = useMutation(incomeMutations.update());
 
-  async function submit() {
+  // Optimistic submit: the list updates at once and the dialog closes;
+  // a failure rolls the cache back with an error toast.
+  function submit() {
     if (!name.trim() || amount === null) return;
+    const trimmedName = name.trim();
     const day = dayOfMonth ? Number(dayOfMonth) : undefined;
-    try {
-      if (isEdit && income) {
-        await update.mutateAsync({
-          id: income.id,
-          name: name.trim(),
-          amount,
-          currency,
-          dayOfMonth: day ?? null,
-        });
-      } else {
-        await create.mutateAsync({ name: name.trim(), amount, currency, dayOfMonth: day });
-      }
-      toast.success(t("settings.incomeSaved", { name: name.trim() }));
-      void queryClient.invalidateQueries({ queryKey: trpc.income.pathKey() });
-      invalidateMoneyData();
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("settings.incomeSaveFailed"));
+    const callbacks = {
+      onSuccess: () => toast.success(t("settings.incomeSaved", { name: trimmedName })),
+      onError: (error: { message: string }) => toast.error(error.message),
+    };
+    if (isEdit && income) {
+      update.mutate(
+        { id: income.id, name: trimmedName, amount, currency, dayOfMonth: day ?? null },
+        callbacks,
+      );
+    } else {
+      create.mutate({ name: trimmedName, amount, currency, dayOfMonth: day }, callbacks);
     }
+    onOpenChange(false);
   }
 
   return (
@@ -663,7 +633,7 @@ function IncomeFormDialog({
 function CategoriesSection() {
   const t = useT();
   const categories = useQuery(trpc.categories.list.queryOptions());
-  const del = useMutation(trpc.categories.delete.mutationOptions());
+  const del = useMutation(categoryMutations.delete());
   const [editing, setEditing] = useState<CategoryRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<CategoryRow | null>(null);
@@ -729,15 +699,12 @@ function CategoriesSection() {
         destructive
         onConfirm={() => {
           if (!deleting) return;
+          const category = deleting;
+          setDeleting(null);
           del.mutate(
-            { id: deleting.id },
+            { id: category.id },
             {
-              onSuccess: () => {
-                toast.success(t("settings.deletedToast", { name: deleting.name }));
-                setDeleting(null);
-                void queryClient.invalidateQueries({ queryKey: trpc.categories.pathKey() });
-                invalidateMoneyData();
-              },
+              onSuccess: () => toast.success(t("settings.deletedToast", { name: category.name })),
               onError: (error) => toast.error(error.message),
             },
           );
@@ -770,23 +737,24 @@ function CategoryFormDialog({
     }
   }, [open, category]);
 
-  const create = useMutation(trpc.categories.create.mutationOptions());
-  const update = useMutation(trpc.categories.update.mutationOptions());
+  const create = useMutation(categoryMutations.create());
+  const update = useMutation(categoryMutations.update());
 
-  async function submit() {
+  // Optimistic submit: the list updates at once and the dialog closes;
+  // a failure rolls the cache back with an error toast.
+  function submit() {
     if (!name.trim()) return;
-    try {
-      if (isEdit && category) {
-        await update.mutateAsync({ id: category.id, name: name.trim(), color, isCreditCard });
-      } else {
-        await create.mutateAsync({ name: name.trim(), color, isCreditCard });
-      }
-      toast.success(t("settings.categorySaved", { name: name.trim() }));
-      void queryClient.invalidateQueries({ queryKey: trpc.categories.pathKey() });
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("settings.categorySaveFailed"));
+    const trimmedName = name.trim();
+    const callbacks = {
+      onSuccess: () => toast.success(t("settings.categorySaved", { name: trimmedName })),
+      onError: (error: { message: string }) => toast.error(error.message),
+    };
+    if (isEdit && category) {
+      update.mutate({ id: category.id, name: trimmedName, color, isCreditCard }, callbacks);
+    } else {
+      create.mutate({ name: trimmedName, color, isCreditCard }, callbacks);
     }
+    onOpenChange(false);
   }
 
   return (

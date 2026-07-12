@@ -43,7 +43,14 @@ import {
 import { Skeleton } from "@balance-point/ui/components/skeleton";
 import { Switch } from "@balance-point/ui/components/switch";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckIcon, LandmarkIcon, MoreHorizontalIcon, PencilIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  LandmarkIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -53,6 +60,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CurrencyChip } from "@/components/currency-chip";
 import { CurrencySelect } from "@/components/currency-select";
 import { MoneyInput } from "@/components/money-input";
+import { PageHeader } from "@/components/page-header";
+import { Stagger, StaggerItem } from "@/components/stagger";
 import type { AccountRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
 import { accountMutations } from "@/lib/mutations";
@@ -70,21 +79,22 @@ export default function AccountsPage() {
   const archived = rows.filter((a) => a.archived);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold">{t("accounts.title")}</h2>
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t("accounts.title")} description={t("page.accountsDescription")}>
         {/* Yield accrues automatically every day — no manual trigger. */}
-        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-          {t("accounts.addButton")}
+        <Button onClick={() => setCreating(true)}>
+          <PlusIcon data-icon="inline-start" /> {t("accounts.addButton")}
         </Button>
-      </div>
+      </PageHeader>
 
       {accounts.isLoading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-40 w-full" />
+            <StaggerItem key={i}>
+              <AccountCardSkeleton />
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       ) : rows.length === 0 ? (
         <Empty>
           <EmptyHeader>
@@ -100,11 +110,13 @@ export default function AccountsPage() {
         </Empty>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {active.map((account) => (
-              <AccountCard key={account.id} account={account} onEdit={() => setEditing(account)} />
+              <StaggerItem key={account.id}>
+                <AccountCard account={account} onEdit={() => setEditing(account)} />
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
           {archived.length > 0 ? (
             <>
               <h3 className="mt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -131,6 +143,35 @@ export default function AccountsPage() {
         account={editing}
       />
     </div>
+  );
+}
+
+/** Mirrors AccountCard row for row, so nothing shifts when the data lands. */
+function AccountCardSkeleton() {
+  return (
+    <Card size="sm" className="h-full">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Skeleton className="size-2.5 shrink-0 rounded-full" />
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-9 rounded-full" />
+        </CardTitle>
+        <Skeleton className="h-3 w-20" />
+        <CardAction>
+          <Skeleton className="size-9 rounded-md md:size-6" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-3 w-14" />
+          <Skeleton className="h-5 w-24" />
+        </div>
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-5 w-20" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -172,7 +213,7 @@ function AccountCard({ account, onEdit }: { account: AccountRow; onEdit: () => v
   }
 
   return (
-    <Card size="sm">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <span

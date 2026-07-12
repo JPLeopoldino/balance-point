@@ -11,6 +11,7 @@ import { useT } from "@/i18n";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
+import PasswordInput from "./password-input";
 
 export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
   const router = useRouter();
@@ -119,10 +120,9 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
             {(field) => (
               <div className="space-y-2">
                 <Label htmlFor={field.name}>{t("auth.password")}</Label>
-                <Input
+                <PasswordInput
                   id={field.name}
                   name={field.name}
-                  type="password"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}

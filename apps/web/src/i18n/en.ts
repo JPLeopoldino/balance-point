@@ -56,6 +56,8 @@ export const en = {
     createAccount: "Create account",
     email: "Email",
     password: "Password",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
     yourName: "Name",
     signIn: "Sign in",
     signUp: "Sign up",

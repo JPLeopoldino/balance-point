@@ -52,6 +52,8 @@ export const ptBR: Messages = {
     createAccount: "Criar conta",
     email: "E-mail",
     password: "Senha",
+    showPassword: "Mostrar senha",
+    hidePassword: "Ocultar senha",
     yourName: "Nome",
     signIn: "Entrar",
     signUp: "Cadastrar",

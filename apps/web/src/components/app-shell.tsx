@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
+import { Logo } from "@/assets/logo";
 import { BillFormDialog } from "@/components/bills/bill-form-dialog";
 import { CurrencySwitcher } from "@/components/currency-switcher";
 import UserMenu from "@/components/user-menu";
@@ -56,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           href="/dashboard"
           className="flex h-14 items-center gap-2 px-4 text-sm font-semibold text-sidebar-foreground"
         >
-          <span className="size-2.5 shrink-0 rounded-full bg-primary" aria-hidden />
+          <Logo className="size-5 shrink-0 text-primary" aria-hidden />
           <span className="hidden lg:inline">Balance Point</span>
         </Link>
         <div className="px-2 pb-2">
@@ -96,6 +97,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0 md:pl-14 lg:pl-56">
         {/* Top bar — page title; global actions live in the sidebar (mobile keeps them here) */}
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur md:px-5">
+          {/* The sidebar (and its brand) is hidden on mobile — show the mark here. */}
+          <Logo className="size-5 shrink-0 text-primary md:hidden" aria-hidden />
           <h1 className="min-w-0 truncate text-sm font-semibold md:text-base">
             {active
               ? t(active.labelKey)

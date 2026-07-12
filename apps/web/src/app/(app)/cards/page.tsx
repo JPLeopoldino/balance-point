@@ -44,7 +44,7 @@ import { Progress } from "@balance-point/ui/components/progress";
 import { Skeleton } from "@balance-point/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@balance-point/ui/components/tabs";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CreditCardIcon, MoreHorizontalIcon } from "lucide-react";
+import { CreditCardIcon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -54,8 +54,9 @@ import { useT } from "@/i18n";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CurrencyChip } from "@/components/currency-chip";
 import { CurrencySelect } from "@/components/currency-select";
-import { KpiCard } from "@/components/kpi-card";
+import { KpiSummary } from "@/components/kpi-summary";
 import { MoneyInput } from "@/components/money-input";
+import { PageHeader } from "@/components/page-header";
 import { SubscriptionsTable } from "@/components/subscriptions/subscriptions-table";
 import type { CardRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
@@ -83,43 +84,45 @@ export default function CardsPage() {
   const archivedCards = cardList.filter((c) => c.archived);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t("cards.title")} description={t("page.cardsDescription")}>
+        <Button onClick={() => setCreating(true)}>
+          <PlusIcon data-icon="inline-start" /> {t("cards.addButton")}
+        </Button>
+      </PageHeader>
+
       {/* Same KPI layout as the Bills screen (doc 09 §9.3) */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard
-          label={t("cards.kpiLimit")}
-          value={u?.totalLimit ?? 0}
-          currency={u?.displayCurrency ?? "BRL"}
-          index={0}
-          loading={usage.isLoading}
-          sublabel={u ? t("cards.countCards", { count: u.cards.length }) : undefined}
-        />
-        <KpiCard
-          label={t("cards.kpiUsed")}
-          value={u?.totalUsed ?? 0}
-          currency={u?.displayCurrency ?? "BRL"}
-          index={1}
-          loading={usage.isLoading}
-          sublabel={t("cards.kpiUsedHint")}
-        />
-        <KpiCard
-          label={t("cards.kpiAvailable")}
-          value={u?.totalCreditAvailable ?? 0}
-          currency={u?.displayCurrency ?? "BRL"}
-          index={2}
-          emphasis
-          loading={usage.isLoading}
-          sublabel={t("cards.kpiAvailableHint")}
-        />
-        <KpiCard
-          label={t("cards.kpiCommitted")}
-          value={u?.totalCommittedMonthly ?? 0}
-          currency={u?.displayCurrency ?? "BRL"}
-          index={3}
-          loading={usage.isLoading}
-          sublabel={t("cards.kpiCommittedHint")}
-        />
-      </section>
+      <KpiSummary
+        loading={usage.isLoading}
+        stats={[
+          {
+            label: t("cards.kpiLimit"),
+            value: u?.totalLimit ?? 0,
+            currency: u?.displayCurrency ?? "BRL",
+            sublabel: t("cards.countCards", { count: u?.cards.length ?? 0 }),
+          },
+          {
+            label: t("cards.kpiUsed"),
+            value: u?.totalUsed ?? 0,
+            currency: u?.displayCurrency ?? "BRL",
+            sublabel: t("cards.kpiUsedHint"),
+          },
+          {
+            label: t("cards.kpiAvailable"),
+            value: u?.totalCreditAvailable ?? 0,
+            currency: u?.displayCurrency ?? "BRL",
+            emphasis: true,
+            sublabel: t("cards.kpiAvailableHint"),
+          },
+          {
+            label: t("cards.kpiCommitted"),
+            shortLabel: t("cards.kpiCommittedShort"),
+            value: u?.totalCommittedMonthly ?? 0,
+            currency: u?.displayCurrency ?? "BRL",
+            sublabel: t("cards.kpiCommittedHint"),
+          },
+        ]}
+      />
 
       {u?.warnings.map((warning) => (
         <p key={warning} className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -128,23 +131,16 @@ export default function CardsPage() {
       ))}
 
       <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "cards")}>
-        <div className="flex flex-wrap items-center gap-2">
-          <TabsList>
-            <TabsTrigger value="cards">{t("cards.title")}</TabsTrigger>
-            <TabsTrigger value="subscriptions">{t("nav.subscriptions")}</TabsTrigger>
-          </TabsList>
-          {tab === "cards" ? (
-            <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-              {t("cards.addButton")}
-            </Button>
-          ) : null}
-        </div>
+        <TabsList>
+          <TabsTrigger value="cards">{t("cards.title")}</TabsTrigger>
+          <TabsTrigger value="subscriptions">{t("nav.subscriptions")}</TabsTrigger>
+        </TabsList>
 
         <TabsContent value="cards" className="flex flex-col gap-3">
           {usage.isLoading ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {[0, 1].map((i) => (
-                <Skeleton key={i} className="h-44 w-full" />
+                <CreditCardSkeleton key={i} />
               ))}
             </div>
           ) : (u?.cards.length ?? 0) === 0 && archivedCards.length === 0 ? (
@@ -291,6 +287,37 @@ export default function CardsPage() {
         card={editing}
       />
     </div>
+  );
+}
+
+/** Mirrors a real card row for row, so nothing shifts when the data lands. */
+function CreditCardSkeleton() {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Skeleton className="size-4 shrink-0 rounded" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-9 rounded-full" />
+        </CardTitle>
+        <Skeleton className="h-3 w-24" />
+        <CardAction>
+          <Skeleton className="size-9 rounded-md md:size-6" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        <div className="flex justify-between">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+        <Skeleton className="h-2 w-full rounded-full" />
+        <div className="flex items-baseline justify-between">
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+        <Skeleton className="h-3 w-44" />
+      </CardContent>
+    </Card>
   );
 }
 

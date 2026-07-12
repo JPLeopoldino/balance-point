@@ -32,9 +32,9 @@ import {
   BillsTable,
   type BillsTableMeta,
   BillsTableSkeleton,
+  DEFAULT_STATUS_FILTER,
   filterBills,
   isSelectable,
-  UNPAID_STATUSES,
 } from "@/components/bills/bills-table";
 import {
   type BillsRange,
@@ -59,14 +59,14 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
 /**
- * Default view filters unpaid bills; ?filter=paid|wontpay|all deep links
- * override the status column filter.
+ * Default view filters the bills you still have to act on; ?filter=paid|wontpay|all
+ * deep links override the status column filter.
  */
 function initialColumnFilters(filter: string | null): ColumnFiltersState {
   if (filter === "paid") return [{ id: "status", value: ["paid"] }];
   if (filter === "wontpay") return [{ id: "status", value: ["wont-pay"] }];
   if (filter === "all") return [];
-  return [{ id: "status", value: [...UNPAID_STATUSES] }];
+  return [{ id: "status", value: [...DEFAULT_STATUS_FILTER] }];
 }
 
 /** Debounced copy of a fast-changing value (search input → fallback query). */

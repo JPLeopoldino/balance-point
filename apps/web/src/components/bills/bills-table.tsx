@@ -133,9 +133,11 @@ export function isSelectable(bill: BillRow): boolean {
   return !bill.paid && !bill.wontPay && !bill.creditCardId;
 }
 
-export const UNPAID_STATUSES: BillStatus[] = ["overdue", "due-soon", "pending", "on-card"];
+/** Default status filter: bills you still have to act on. On-card charges are
+ * settled by their fatura, so they stay out until asked for. */
+export const DEFAULT_STATUS_FILTER: BillStatus[] = ["overdue", "due-soon", "pending"];
 
-/** Default view: unpaid bills only, nearest due date / most overdue on top. */
+/** Default view: nearest due date / most overdue on top. */
 export const DEFAULT_SORTING: SortingState = [{ id: "dueDate", desc: false }];
 
 /** Explicit status sort: unpaid first, paid and won't-pay sink to the bottom. */
@@ -713,7 +715,7 @@ const PAGE_SIZES = [5, 10, 25, 50, 100];
 
 /** A card is ~4× a table row, so a phone gets a much shorter page by default. */
 const MOBILE_PAGE_SIZE = 5;
-const DESKTOP_PAGE_SIZE = 25;
+const DESKTOP_PAGE_SIZE = 10;
 
 /** 1-based page list with ellipsis gaps: 1 … 4 5 6 … 12. */
 function pageNumbers(current: number, count: number): (number | "ellipsis")[] {

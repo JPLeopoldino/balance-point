@@ -13,7 +13,6 @@ import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
 import { logActivity } from "../lib/activity";
-import { yieldCatchUp } from "../lib/yield";
 import { currencySchema, idSchema, moneySchema } from "../lib/validation";
 
 async function ownedAccount(userId: string, id: string) {
@@ -148,7 +147,9 @@ export const accountsRouter = router({
 
       return db.transaction(async (tx) => {
         const scoped = and(eq(bill.userId, userId), eq(bill.sourceAccountId, input.id));
-        const [unpaidBills, templates, plans, cards] = await Promise.all([
+        // Cards no longer block deletion — they can live without a bank, so
+        // the FK simply detaches them (or `reassignToId` moves them over).
+        const [unpaidBills, templates, plans] = await Promise.all([
           tx.select({ id: bill.id }).from(bill).where(and(scoped, eq(bill.paid, false))).limit(1),
           tx
             .select({ id: recurringExpense.id })
@@ -167,21 +168,15 @@ export const accountsRouter = router({
               and(eq(purchasePlan.userId, userId), eq(purchasePlan.sourceAccountId, input.id)),
             )
             .limit(1),
-          tx
-            .select({ id: creditCard.id })
-            .from(creditCard)
-            .where(and(eq(creditCard.userId, userId), eq(creditCard.bankAccountId, input.id)))
-            .limit(1),
         ]);
 
-        const referenced =
-          unpaidBills.length > 0 || templates.length > 0 || plans.length > 0 || cards.length > 0;
+        const referenced = unpaidBills.length > 0 || templates.length > 0 || plans.length > 0;
 
         if (referenced && !input.reassignToId) {
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "This account is referenced by bills, recurring expenses, plans or cards. Reassign them to another account or archive instead.",
+              "This account is referenced by bills, recurring expenses or plans. Reassign them to another account or archive instead.",
           });
         }
 
@@ -290,56 +285,4 @@ export const accountsRouter = router({
       return created!;
     }),
 
-  accrueYield: protectedProcedure.mutation(async ({ ctx }) => {
-    const userId = ctx.session.user.id;
-    const now = new Date();
-    return db.transaction(async (tx) => {
-      const configs = await tx.query.yieldConfig.findMany({
-        where: and(eq(yieldConfig.userId, userId), eq(yieldConfig.enabled, true)),
-      });
-      const accrued: { accountId: string; amount: number }[] = [];
-
-      for (const cfg of configs) {
-        const account = await tx.query.bankAccount.findFirst({
-          where: and(eq(bankAccount.id, cfg.bankAccountId), eq(bankAccount.userId, userId)),
-        });
-        if (!account) continue;
-
-        const result = yieldCatchUp(
-          account.investmentBalance,
-          cfg.rateBps,
-          cfg.ratePeriod,
-          cfg.lastAccruedAt,
-          now,
-        );
-        if (cfg.lastAccruedAt === null) {
-          await tx
-            .update(yieldConfig)
-            .set({ lastAccruedAt: result.nextLastAccruedAt })
-            .where(eq(yieldConfig.id, cfg.id));
-          continue;
-        }
-        if (result.months === 0) continue;
-
-        await tx
-          .update(bankAccount)
-          .set({ investmentBalance: result.newBalance })
-          .where(and(eq(bankAccount.id, account.id), eq(bankAccount.userId, userId)));
-        await tx
-          .update(yieldConfig)
-          .set({ lastAccruedAt: result.nextLastAccruedAt })
-          .where(eq(yieldConfig.id, cfg.id));
-        await logActivity(tx, {
-          userId,
-          type: "yield_accrued",
-          bankAccountId: account.id,
-          amount: result.accrued,
-          balanceAfter: result.newBalance,
-          meta: { months: result.months, rateBps: cfg.rateBps, ratePeriod: cfg.ratePeriod },
-        });
-        accrued.push({ accountId: account.id, amount: result.accrued });
-      }
-      return { accrued };
-    });
-  }),
 });

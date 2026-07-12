@@ -10,6 +10,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
+import { ensureUpToDate } from "../lib/automation";
 import { cardUsage, monthlyEquivalent } from "../lib/credit";
 import { createSafeConverter, loadFxRates } from "../lib/fx";
 import { refreshUsdBrlIfStale } from "../lib/fx-feed";
@@ -25,6 +26,8 @@ export const dashboardRouter = router({
     .input(z.object({ displayCurrency: currencySchema.optional() }).optional())
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+      // Daily automation runs on the first load of the day (doc 04 rework).
+      await ensureUpToDate(userId, ctx.preferredLocale);
       const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
       const displayCurrency = input?.displayCurrency ?? settings.displayCurrency;
       // Automatic conversion: pull a fresh USD→BRL quote at most once a day,
@@ -110,7 +113,10 @@ export const dashboardRouter = router({
           id: card.id,
           name: card.name,
           // Defaults to the host account's color (custom card color wins).
-          color: card.color ?? accountById.get(card.bankAccountId)?.color ?? null,
+          color:
+            card.color ??
+            (card.bankAccountId ? accountById.get(card.bankAccountId)?.color : null) ??
+            null,
           currency: card.currency,
           limit: card.creditLimit,
           used: usage.used,

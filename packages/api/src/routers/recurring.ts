@@ -1,5 +1,5 @@
 import { db } from "@balance-point/db";
-import type { Bill, RecurringExpense } from "@balance-point/db/schema/index";
+import type { RecurringExpense } from "@balance-point/db/schema/index";
 import { bankAccount, bill, category, creditCard, recurringExpense } from "@balance-point/db/schema/index";
 import { sumMoney } from "@balance-point/money";
 import { TRPCError } from "@trpc/server";
@@ -8,12 +8,12 @@ import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
 import { monthlyEquivalent } from "../lib/credit";
-import type { Tx } from "../lib/db-types";
 import { createSafeConverter, loadFxRates } from "../lib/fx";
+import { generateForTemplate, occurrencesForTemplate } from "../lib/generation";
 import { normalizeLocale } from "../lib/locale";
 import { addMonths, currentMonth, todayISO } from "../lib/month";
-import { enumerateOccurrences } from "../lib/recurrence";
 import { ensureUserDefaults } from "../lib/seed";
+import { refreshCardStatements } from "../lib/statements";
 import {
   currencySchema,
   dayOfMonthSchema,
@@ -74,57 +74,20 @@ function validateEndMode(input: z.infer<typeof endModeFields>) {
 }
 
 /**
- * Idempotent generation (doc 04 §4.9): fills only the months that don't have a
- * bill for `(recurringExpenseId, month)` yet. Card-charge templates never
- * materialize payable bills — they feed the card's used credit instead (§4.3).
+ * Templates materialize automatically: right after any create/update here, and
+ * daily via `ensureUpToDate`. Card templates also refresh the card's fatura.
  */
-async function generateForTemplate(
-  tx: Tx,
+async function materializeTemplate(
+  userId: string,
   template: RecurringExpense,
-  throughMonth: string,
-): Promise<Bill[]> {
-  if (!template.active || template.creditCardId) return [];
-
-  const occurrences = enumerateOccurrences(template, throughMonth);
-  if (occurrences.length === 0) return [];
-
-  const existing = await tx
-    .select({ month: bill.month })
-    .from(bill)
-    .where(eq(bill.recurringExpenseId, template.id));
-  const existingMonths = new Set(existing.map((r) => r.month));
-
-  const missing = occurrences.filter((o) => !existingMonths.has(o.month));
-  if (missing.length === 0) return [];
-
-  const created = await tx
-    .insert(bill)
-    .values(
-      missing.map((o) => ({
-        userId: template.userId,
-        name: template.name,
-        amount: template.defaultAmount,
-        currency: template.currency,
-        dueDate: o.dueDate,
-        month: o.month,
-        paid: false,
-        sourceAccountId: template.sourceAccountId,
-        categoryId: template.categoryId,
-        recurringExpenseId: template.id,
-        installmentNumber: o.installmentNumber,
-        installmentTotal:
-          template.endMode === "installments" ? template.installmentsTotal : null,
-      })),
-    )
-    .returning();
-
-  if (template.endMode === "installments") {
-    await tx
-      .update(recurringExpense)
-      .set({ installmentsGenerated: existingMonths.size + created.length })
-      .where(eq(recurringExpense.id, template.id));
+  preferredLocale: Parameters<typeof ensureUserDefaults>[2],
+) {
+  const settings = await ensureUserDefaults(db, userId, preferredLocale);
+  const throughMonth = addMonths(currentMonth(), settings.projectionHorizonMonths);
+  await db.transaction((tx) => generateForTemplate(tx, template, throughMonth));
+  if (template.creditCardId) {
+    await refreshCardStatements(userId, normalizeLocale(settings.locale));
   }
-  return created;
 }
 
 export const recurringRouter = router({
@@ -175,6 +138,8 @@ export const recurringRouter = router({
         .insert(recurringExpense)
         .values({ ...input, userId })
         .returning();
+      // Bills materialize immediately — there is no "generate" button anymore.
+      await materializeTemplate(userId, created!, ctx.preferredLocale);
       return created!;
     }),
 
@@ -219,6 +184,7 @@ export const recurringRouter = router({
         .set(editable)
         .where(and(eq(recurringExpense.id, id), eq(recurringExpense.userId, userId)))
         .returning();
+      await materializeTemplate(userId, updated!, ctx.preferredLocale);
       return updated!;
     }),
 
@@ -232,6 +198,9 @@ export const recurringRouter = router({
         .set({ active: input.active })
         .where(and(eq(recurringExpense.id, input.id), eq(recurringExpense.userId, userId)))
         .returning();
+      if (input.active) {
+        await materializeTemplate(userId, updated!, ctx.preferredLocale);
+      }
       return updated!;
     }),
 
@@ -240,8 +209,8 @@ export const recurringRouter = router({
     .input(z.object({ id: idSchema, deleteFutureBills: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await ownedTemplate(userId, input.id);
-      return db.transaction(async (tx) => {
+      const template = await ownedTemplate(userId, input.id);
+      const result = await db.transaction(async (tx) => {
         let deletedBills = 0;
         if (input.deleteFutureBills) {
           const deleted = await tx
@@ -262,6 +231,11 @@ export const recurringRouter = router({
           .where(and(eq(recurringExpense.id, input.id), eq(recurringExpense.userId, userId)));
         return { ok: true as const, deletedBills };
       });
+      if (template.creditCardId && result.deletedBills > 0) {
+        const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+        await refreshCardStatements(userId, normalizeLocale(settings.locale));
+      }
+      return result;
     }),
 
   preview: protectedProcedure
@@ -273,8 +247,7 @@ export const recurringRouter = router({
       const throughMonth =
         input.throughMonth ?? addMonths(currentMonth(), settings.projectionHorizonMonths);
 
-      if (template.creditCardId) return [];
-      const occurrences = enumerateOccurrences(template, throughMonth);
+      const occurrences = occurrencesForTemplate(template, throughMonth);
       if (occurrences.length === 0) return [];
       const existing = await db
         .select({ month: bill.month })
@@ -289,29 +262,6 @@ export const recurringRouter = router({
         installmentNumber: o.installmentNumber,
         alreadyExists: existingMonths.has(o.month),
       }));
-    }),
-
-  generate: protectedProcedure
-    .input(z.object({ id: idSchema.optional(), throughMonth: monthSchema.optional() }).optional())
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-      const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
-      const throughMonth =
-        input?.throughMonth ?? addMonths(currentMonth(), settings.projectionHorizonMonths);
-
-      const templates = input?.id
-        ? [await ownedTemplate(userId, input.id)]
-        : await db.query.recurringExpense.findMany({
-            where: and(eq(recurringExpense.userId, userId), eq(recurringExpense.active, true)),
-          });
-
-      return db.transaction(async (tx) => {
-        const bills: Bill[] = [];
-        for (const template of templates) {
-          bills.push(...(await generateForTemplate(tx, template, throughMonth)));
-        }
-        return { created: bills.length, bills };
-      });
     }),
 
   /** Subscriptions header totals (doc 04 §4.4), in the display currency. */

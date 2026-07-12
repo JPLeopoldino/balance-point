@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
 import { logActivity } from "../lib/activity";
+import { ensureUpToDate } from "../lib/automation";
 import { createSafeConverter, loadFxRates } from "../lib/fx";
 import { normalizeLocale } from "../lib/locale";
 import { messagesFor } from "../lib/messages";
@@ -15,6 +16,7 @@ import { currentMonth, monthOfDate, todayISO } from "../lib/month";
 import { payBillTx, unpayBillTx } from "../lib/payments";
 import { monthRollup } from "../lib/rollups";
 import { ensureUserDefaults } from "../lib/seed";
+import { refreshCardStatements } from "../lib/statements";
 import {
   currencySchema,
   idSchema,
@@ -74,8 +76,11 @@ export const billsRouter = router({
         })
         .optional(),
     )
-    .query(({ ctx, input }) => {
+    .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+      // Lazy daily automation: generates recurring bills, auto-pays due
+      // subscriptions and keeps the faturas in sync before listing.
+      await ensureUpToDate(userId, ctx.preferredLocale);
       const useRange = Boolean(input?.from ?? input?.to);
       const month =
         useRange || input?.allTime ? undefined : (input?.month ?? currentMonth());
@@ -97,6 +102,7 @@ export const billsRouter = router({
           category: { columns: { id: true, name: true, color: true, isCreditCard: true } },
           sourceAccount: { columns: { id: true, name: true, currency: true } },
           creditCard: { columns: { id: true, name: true, currency: true } },
+          statementCard: { columns: { id: true, name: true, currency: true } },
         },
       });
     }),
@@ -146,6 +152,11 @@ export const billsRouter = router({
           month: monthOfDate(input.dueDate),
         })
         .returning();
+      // A new card charge lands on (or creates) the card's open fatura.
+      if (created!.creditCardId) {
+        const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+        await refreshCardStatements(userId, normalizeLocale(settings.locale));
+      }
       return created!;
     }),
 
@@ -188,6 +199,10 @@ export const billsRouter = router({
         })
         .where(and(eq(bill.id, id), eq(bill.userId, userId)))
         .returning();
+      if (updated!.creditCardId || existing.creditCardId) {
+        const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+        await refreshCardStatements(userId, normalizeLocale(settings.locale));
+      }
       return updated!;
     }),
 
@@ -198,7 +213,7 @@ export const billsRouter = router({
       const userId = ctx.session.user.id;
       const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
       const locale = normalizeLocale(settings.locale);
-      return db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const existing = await tx.query.bill.findFirst({
           where: and(eq(bill.id, input.id), eq(bill.userId, userId)),
         });
@@ -216,12 +231,25 @@ export const billsRouter = router({
           meta: { name: existing.name, amount: existing.amount, currency: existing.currency },
         });
         await tx.delete(bill).where(and(eq(bill.id, input.id), eq(bill.userId, userId)));
-        return { ok: true as const };
+        return { ok: true as const, wasCardCharge: Boolean(existing.creditCardId) };
       });
+      if (result.wasCardCharge) {
+        await refreshCardStatements(userId, locale);
+      }
+      return { ok: result.ok };
     }),
 
   pay: protectedProcedure
-    .input(z.object({ id: idSchema, fromAccountId: idSchema.optional() }))
+    .input(
+      z.object({
+        id: idSchema,
+        fromAccountId: idSchema.optional(),
+        /** Pay with no bank debit, even when the bill has a source account. */
+        withoutAccount: z.boolean().optional(),
+        /** Optional payment-time discount: the bill's new (final) value. */
+        amount: positiveMoneySchema.optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
@@ -232,6 +260,8 @@ export const billsRouter = router({
           userId,
           billId: input.id,
           fromAccountId: input.fromAccountId,
+          withoutAccount: input.withoutAccount,
+          amount: input.amount,
           rates,
           locale,
         }),
@@ -245,6 +275,13 @@ export const billsRouter = router({
       const userId = ctx.session.user.id;
       const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
       const locale = normalizeLocale(settings.locale);
+      const msg = messagesFor(locale);
+      const existing = await ownedBill(userId, input.id);
+      // Card charges settle via the fatura — reversing one directly would let
+      // it be double-charged on the next statement.
+      if (existing.creditCardId && existing.settledByBillId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: msg.chargeSettledViaStatement });
+      }
       const result = await db.transaction((tx) =>
         unpayBillTx(tx, { userId, billId: input.id, locale }),
       );

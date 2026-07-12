@@ -16,8 +16,8 @@ import {
   MenuIcon,
   PlusIcon,
   ReceiptIcon,
+  RefreshCcwIcon,
   RepeatIcon,
-  SettingsIcon,
   TargetIcon,
   TrendingUpIcon,
 } from "lucide-react";
@@ -27,7 +27,6 @@ import { useState } from "react";
 
 import { BillFormDialog } from "@/components/bills/bill-form-dialog";
 import { CurrencySwitcher } from "@/components/currency-switcher";
-import { MonthSwitcher } from "@/components/month-switcher";
 import UserMenu from "@/components/user-menu";
 import { useT } from "@/i18n";
 
@@ -37,10 +36,11 @@ const NAV = [
   { href: "/accounts", labelKey: "nav.accounts", icon: LandmarkIcon },
   { href: "/cards", labelKey: "nav.cards", icon: CreditCardIcon },
   { href: "/subscriptions", labelKey: "nav.subscriptions", icon: RepeatIcon },
+  { href: "/recurring", labelKey: "nav.recurring", icon: RefreshCcwIcon },
   { href: "/projection", labelKey: "nav.projection", icon: TrendingUpIcon },
   { href: "/plans", labelKey: "nav.plans", icon: TargetIcon },
   { href: "/activity", labelKey: "nav.activity", icon: HistoryIcon },
-  { href: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
+  // Settings lives in the user menu popover, not in the nav.
 ] as const;
 
 const MOBILE_PRIMARY = NAV.slice(0, 4);
@@ -64,6 +64,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="size-2.5 shrink-0 rounded-full bg-primary" aria-hidden />
           <span className="hidden lg:inline">Balance Point</span>
         </Link>
+        <div className="px-2 pb-2">
+          <Button size="sm" className="w-full" onClick={() => setAddBillOpen(true)}>
+            <PlusIcon />
+            <span className="hidden lg:inline">{t("nav.addBill")}</span>
+          </Button>
+        </div>
         <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2" aria-label={t("nav.main")}>
           {NAV.map((item) => {
             const isActive = pathname.startsWith(item.href);
@@ -84,29 +90,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <div className="flex flex-col gap-2 border-t border-sidebar-border px-2 py-2">
+          <div className="hidden justify-center lg:flex">
+            <CurrencySwitcher className="w-full *:flex-1" />
+          </div>
+          <UserMenu variant="sidebar" />
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0 md:pl-14 lg:pl-56">
-        {/* Top bar */}
+        {/* Top bar — page title; global actions live in the sidebar (mobile keeps them here) */}
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur md:px-5">
           <h1 className="min-w-0 truncate text-sm font-semibold md:text-base">
-            {active ? t(active.labelKey) : "Balance Point"}
+            {active
+              ? t(active.labelKey)
+              : pathname.startsWith("/settings")
+                ? t("nav.settings")
+                : "Balance Point"}
           </h1>
-          <div className="ml-auto flex items-center gap-1.5 md:gap-2.5">
-            <div className="hidden sm:block">
-              <MonthSwitcher />
-            </div>
+          <div className="ml-auto flex items-center gap-1.5 md:hidden">
             <CurrencySwitcher />
-            <Button size="sm" onClick={() => setAddBillOpen(true)}>
-              <PlusIcon data-icon="inline-start" />
-              <span className="hidden sm:inline">{t("nav.addBill")}</span>
+            <Button size="icon-sm" aria-label={t("nav.addBill")} onClick={() => setAddBillOpen(true)}>
+              <PlusIcon />
             </Button>
             <UserMenu />
           </div>
         </header>
-        <div className="border-b border-border px-3 py-1.5 sm:hidden">
-          <MonthSwitcher />
-        </div>
 
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-3 py-4 md:px-5 lg:py-6">
           {children}

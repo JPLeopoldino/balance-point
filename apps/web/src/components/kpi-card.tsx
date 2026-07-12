@@ -16,6 +16,7 @@ export function KpiCard({
   index = 0,
   emphasis = false,
   negativeIsBad = true,
+  destructive = false,
   sublabel,
   loading = false,
 }: {
@@ -26,12 +27,19 @@ export function KpiCard({
   /** Yellow figure — reserve for the single most important number. */
   emphasis?: boolean;
   negativeIsBad?: boolean;
+  /** Force the red tone regardless of sign (e.g. overdue totals). */
+  destructive?: boolean;
   sublabel?: React.ReactNode;
   loading?: boolean;
 }) {
   const reduced = useReducedMotion();
   const negative = value < 0;
-  const tone = negative && negativeIsBad ? "text-destructive" : emphasis ? "text-primary" : "";
+  const tone =
+    destructive || (negative && negativeIsBad)
+      ? "text-destructive"
+      : emphasis
+        ? "text-primary"
+        : "";
 
   return (
     <motion.div

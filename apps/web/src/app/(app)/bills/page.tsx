@@ -1,15 +1,7 @@
 "use client";
 
 import type { Currency, Money } from "@balance-point/money";
-import { Badge } from "@balance-point/ui/components/badge";
 import { Button } from "@balance-point/ui/components/button";
-import { Checkbox } from "@balance-point/ui/components/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@balance-point/ui/components/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -26,116 +18,154 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@balance-point/ui/components/select";
-import { Skeleton } from "@balance-point/ui/components/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@balance-point/ui/components/table";
-import { Tabs, TabsList, TabsTrigger } from "@balance-point/ui/components/tabs";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { CreditCardIcon, MoreHorizontalIcon, ReceiptIcon, SearchIcon } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
+import type { ColumnFiltersState } from "@tanstack/react-table";
+import { PlusIcon, ReceiptIcon, RefreshCcwIcon, SearchIcon } from "lucide-react";
 import type { Route } from "next";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { BillFormDialog } from "@/components/bills/bill-form-dialog";
-import { PayBillButton } from "@/components/bills/pay-bill-button";
+import {
+  BillsTable,
+  type BillsTableMeta,
+  BillsTableSkeleton,
+  filterBills,
+  isSelectable,
+  UNPAID_STATUSES,
+} from "@/components/bills/bills-table";
+import {
+  type BillsRange,
+  DateRangeFilter,
+  monthToRange,
+  rangeMonth,
+} from "@/components/bills/date-range-filter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { CurrencyChip } from "@/components/currency-chip";
-import type { RecurringPrefill } from "@/components/recurring/recurring-form-dialog";
-import { RecurringTemplates } from "@/components/recurring/recurring-templates";
+import { KpiCard } from "@/components/kpi-card";
 import { useDisplayCurrency } from "@/hooks/use-display-currency";
-import { useMonth } from "@/hooks/use-month";
-import { type MessageKey, useFormat, useT } from "@/i18n";
+import { useT } from "@/i18n";
 import type { BillRow } from "@/lib/api-types";
-import { type BillStatus, billStatus, formatMoney } from "@/lib/format";
+import { currentMonth, formatMoney } from "@/lib/format";
 import { invalidateMoneyData } from "@/lib/invalidate";
 import { trpc } from "@/utils/trpc";
 
 const ALL = "__all__";
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
 
-type PaidFilter = "all" | "unpaid" | "paid" | "wontpay";
+/**
+ * Default view filters unpaid bills; ?filter=paid|wontpay|all deep links
+ * override the status column filter.
+ */
+function initialColumnFilters(filter: string | null): ColumnFiltersState {
+  if (filter === "paid") return [{ id: "status", value: ["paid"] }];
+  if (filter === "wontpay") return [{ id: "status", value: ["wont-pay"] }];
+  if (filter === "all") return [];
+  return [{ id: "status", value: [...UNPAID_STATUSES] }];
+}
+
+/** Debounced copy of a fast-changing value (search input → fallback query). */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export default function BillsPage() {
   const t = useT();
-  const { formatMonth } = useFormat();
-  const { month } = useMonth();
   const { currency: displayCurrency } = useDisplayCurrency();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const initialFilter = searchParams.get("filter");
-  const [paidFilter, setPaidFilter] = useState<PaidFilter>(
-    initialFilter === "unpaid" || initialFilter === "paid" || initialFilter === "wontpay"
-      ? initialFilter
-      : "all",
-  );
 
-  // Recurring bills live here as a view — a recurring bill is still a bill.
-  const view = searchParams.get("view") === "recurring" ? "recurring" : "monthly";
-  function setView(next: "monthly" | "recurring") {
+  // Due-date window, persisted in the URL (?from/?to; legacy ?month accepted).
+  const [range, setRange] = useState<BillsRange>(() => {
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    if (from && to && ISO_DATE_RE.test(from) && ISO_DATE_RE.test(to)) {
+      return from <= to ? { from, to } : { from: to, to: from };
+    }
+    const month = searchParams.get("month");
+    if (month && MONTH_RE.test(month)) return monthToRange(month);
+    return monthToRange(currentMonth());
+  });
+
+  function updateRange(next: BillsRange) {
+    setRange(next);
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "recurring") params.set("view", "recurring");
-    else params.delete("view");
+    params.delete("month");
+    if (rangeMonth(next) === currentMonth()) {
+      params.delete("from");
+      params.delete("to");
+    } else {
+      params.set("from", next.from);
+      params.set("to", next.to);
+    }
     const query = params.toString();
     router.replace((query ? `${pathname}?${query}` : pathname) as Route, { scroll: false });
   }
 
-  // "Make recurring" prefill forwarded by the bill form (doc 09 §9.3).
-  const recurringPrefill = useMemo<RecurringPrefill | undefined>(() => {
-    const name = searchParams.get("name");
-    const amount = searchParams.get("amount");
-    const currencyParam = searchParams.get("currency");
-    if (!name && !amount) return undefined;
-    return {
-      name: name ?? undefined,
-      amount: amount && /^\d+$/.test(amount) ? Number(amount) : undefined,
-      currency: currencyParam === "USD" ? "USD" : "BRL",
-    };
-  }, [searchParams]);
-  const [categoryId, setCategoryId] = useState(ALL);
-  const [accountId, setAccountId] = useState(ALL);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() =>
+    initialColumnFilters(searchParams.get("filter")),
+  );
+  // Search filters client-side through the already-fetched rows — no refetch per keystroke.
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounced(search, 350);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [payFromOverride, setPayFromOverride] = useState(ALL);
   const [editing, setEditing] = useState<BillRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<BillRow | null>(null);
 
-  const bills = useQuery(
-    trpc.bills.list.queryOptions({
-      month,
-      paid: paidFilter === "paid" ? true : paidFilter === "unpaid" ? false : undefined,
-      wontPay: paidFilter === "wontpay" ? true : paidFilter === "unpaid" ? false : undefined,
-      categoryId: categoryId === ALL ? undefined : categoryId,
-      accountId: accountId === ALL ? undefined : accountId,
-      search: search.trim() || undefined,
-    }),
-  );
-  const year = Number(month.slice(0, 4));
-  const monthSummary = useQuery(trpc.bills.monthSummary.queryOptions({ year }));
+  const bills = useQuery({
+    ...trpc.bills.list.queryOptions({ from: range.from, to: range.to }),
+    placeholderData: keepPreviousData,
+  });
+  const summary = useQuery({
+    ...trpc.bills.rangeSummary.queryOptions({ from: range.from, to: range.to }),
+    placeholderData: keepPreviousData,
+  });
   const accounts = useQuery(trpc.accounts.list.queryOptions());
   const categories = useQuery(trpc.categories.list.queryOptions());
+
+  const rows = useMemo(() => bills.data ?? [], [bills.data]);
+
+  // Smart search: when the term misses everything in the current period+filters,
+  // search all periods ignoring filters (debounced — never one fetch per key).
+  const fallbackTerm = debouncedSearch.trim();
+  const localMisses =
+    fallbackTerm !== "" && filterBills(rows, columnFilters, fallbackTerm).length === 0;
+  const fallback = useQuery({
+    ...trpc.bills.list.queryOptions({ search: fallbackTerm, allTime: true }),
+    enabled: !bills.isLoading && localMisses,
+    placeholderData: keepPreviousData,
+  });
+  const fallbackRows = useMemo(() => fallback.data ?? [], [fallback.data]);
+  const showFallback = localMisses && !fallback.isLoading && fallbackRows.length > 0;
+  const searchingFallback = localMisses && (fallback.isLoading || fallback.isFetching);
 
   const unpayMutation = useMutation(trpc.bills.unpay.mutationOptions());
   const wontPayMutation = useMutation(trpc.bills.setWontPay.mutationOptions());
   const bulkPayMutation = useMutation(trpc.bills.bulkPay.mutationOptions());
   const deleteMutation = useMutation(trpc.bills.delete.mutationOptions());
 
-  const rows = bills.data ?? [];
-  const summaryRow = monthSummary.data?.find((r) => r.month === month);
+  const s = summary.data;
   const activeAccounts = (accounts.data ?? []).filter((a) => !a.archived);
 
-  const selectableIds = useMemo(
-    () => new Set(rows.filter((b) => !b.paid && !b.wontPay && !b.creditCardId).map((b) => b.id)),
-    [rows],
-  );
+  // Drop selections that left the window or stopped being payable.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(rows.filter((b) => prev.has(b.id) && isSelectable(b)).map((b) => b.id));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
+
   const selectedRows = rows.filter((b) => selected.has(b.id));
   const selectedByCurrency = useMemo(() => {
     const totals = new Map<Currency, Money>();
@@ -152,10 +182,6 @@ export default function BillsPage() {
       else next.add(id);
       return next;
     });
-  }
-
-  function toggleAll() {
-    setSelected((prev) => (prev.size >= selectableIds.size ? new Set() : new Set(selectableIds)));
   }
 
   function deselect(id: string) {
@@ -228,77 +254,99 @@ export default function BillsPage() {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-3 pb-20">
-      {/* Header: view switcher + month totals (doc 09 §9.3) */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h2 className="text-base font-semibold">
-          {t("bills.title")}{view === "monthly" ? ` — ${formatMonth(month)}` : ""}
-        </h2>
-        <Tabs value={view} onValueChange={(v) => setView(v as "monthly" | "recurring")}>
-          <TabsList>
-            <TabsTrigger value="monthly">{t("bills.viewMonthly")}</TabsTrigger>
-            <TabsTrigger value="recurring">{t("bills.viewRecurring")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {view === "monthly" ? (
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {t("bills.totals", {
-              total: formatMoney(summaryRow?.totalBills ?? 0, displayCurrency),
-              paid: formatMoney(summaryRow?.paidBills ?? 0, displayCurrency),
-            })}{" "}
-            <span className="font-medium text-foreground">
-              {formatMoney(summaryRow?.remainingBills ?? 0, displayCurrency)}
-            </span>
-            {summaryRow?.wontPayBills ? (
-              <span className="text-muted-foreground/70">
-                {" "}
-                {t("bills.totalsWontPay", {
-                  amount: formatMoney(summaryRow.wontPayBills, displayCurrency),
-                })}
-              </span>
-            ) : null}
-          </span>
-        ) : null}
-      </div>
+  // Bank select is just a bound view over the account column filter.
+  const accountFilter =
+    (columnFilters.find((f) => f.id === "account")?.value as string[] | undefined)?.[0] ?? ALL;
+  function setAccountFilter(next: string) {
+    setColumnFilters((prev) => {
+      const rest = prev.filter((f) => f.id !== "account");
+      return next === ALL ? rest : [...rest, { id: "account", value: [next] }];
+    });
+  }
 
-      {view === "recurring" ? (
-        <RecurringTemplates prefill={recurringPrefill} />
-      ) : (
-        <>
-      {/* Filters */}
+  function clearFilters() {
+    setColumnFilters([]);
+    setSearch("");
+  }
+
+  const tableMeta: BillsTableMeta = {
+    displayCurrency,
+    selected,
+    showYear: showFallback,
+    onToggleRow: toggle,
+    onSetSelected: setSelected,
+    onPaid: (bill) => deselect(bill.id),
+    onUnpay: unpaySingle,
+    onSetWontPay: setWontPayFor,
+    onEdit: setEditing,
+    onDelete: setDeleting,
+  };
+
+  const wholeMonth = rangeMonth(range);
+  const summaryLoading = summary.isLoading;
+
+  return (
+    <div className="flex flex-col gap-4 pb-20">
+      {/* Period roll-up in the display currency (doc 04 §4.4) */}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label={t("bills.summaryTotal")}
+          value={s?.totalBills ?? 0}
+          currency={displayCurrency}
+          index={0}
+          loading={summaryLoading}
+          sublabel={
+            s
+              ? s.wontPayCount > 0
+                ? `${t("bills.countBills", { count: s.count })} · ${t("bills.wontPayShort", {
+                    amount: formatMoney(s.wontPayBills, displayCurrency),
+                  })}`
+                : t("bills.countBills", { count: s.count })
+              : undefined
+          }
+        />
+        <KpiCard
+          label={t("bills.summaryPaid")}
+          value={s?.paidBills ?? 0}
+          currency={displayCurrency}
+          index={1}
+          loading={summaryLoading}
+          sublabel={s ? t("bills.countPaid", { count: s.paidCount }) : undefined}
+        />
+        <KpiCard
+          label={t("bills.summaryRemaining")}
+          value={s?.remainingBills ?? 0}
+          currency={displayCurrency}
+          index={2}
+          emphasis
+          loading={summaryLoading}
+          sublabel={s ? t("bills.countOpen", { count: s.openCount }) : undefined}
+        />
+        <KpiCard
+          label={t("bills.summaryOverdue")}
+          value={s?.overdueBills ?? 0}
+          currency={displayCurrency}
+          index={3}
+          destructive={(s?.overdueBills ?? 0) > 0}
+          loading={summaryLoading}
+          sublabel={s ? t("bills.countOverdue", { count: s.overdueCount }) : undefined}
+        />
+      </section>
+
+      {/* One-line toolbar: search · bank · period · actions (doc 09 §9.3) */}
       <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={paidFilter} onValueChange={(v) => setPaidFilter(v as PaidFilter)}>
-          <TabsList>
-            <TabsTrigger value="all">{t("bills.filterAll")}</TabsTrigger>
-            <TabsTrigger value="unpaid">{t("bills.filterUnpaid")}</TabsTrigger>
-            <TabsTrigger value="paid">{t("bills.filterPaid")}</TabsTrigger>
-            <TabsTrigger value="wontpay">{t("bills.filterWontPay")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            placeholder={t("bills.searchPlaceholder")}
+            className="h-8 w-48 pl-8"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <Select
-          value={categoryId}
-          onValueChange={(v) => setCategoryId((v as string) ?? ALL)}
-          items={[
-            { value: ALL, label: t("bills.allCategories") },
-            ...(categories.data ?? []).map((c) => ({ value: c.id, label: c.name })),
-          ]}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{t("bills.allCategories")}</SelectItem>
-            {(categories.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={accountId}
-          onValueChange={(v) => setAccountId((v as string) ?? ALL)}
+          value={accountFilter}
+          onValueChange={(v) => setAccountFilter((v as string) ?? ALL)}
           items={[
             { value: ALL, label: t("bills.allAccounts") },
             ...activeAccounts.map((a) => ({ value: a.id, label: a.name })),
@@ -316,86 +364,61 @@ export default function BillsPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="relative ml-auto">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            placeholder={t("bills.searchPlaceholder")}
-            className="h-8 w-44 pl-8"
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <DateRangeFilter value={range} onChange={updateRange} />
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/recurring">
+            <Button variant="outline" size="sm">
+              <RefreshCcwIcon data-icon="inline-start" />
+              <span className="hidden md:inline">{t("bills.emptyRecurring")}</span>
+            </Button>
+          </Link>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <PlusIcon data-icon="inline-start" /> {t("nav.addBill")}
+          </Button>
         </div>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          {t("bills.addButton")}
-        </Button>
       </div>
 
-      {/* Table */}
       {bills.isLoading ? (
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-11 w-full" />
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
+        <BillsTableSkeleton />
+      ) : rows.length === 0 && search.trim() === "" ? (
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <ReceiptIcon />
             </EmptyMedia>
-            <EmptyTitle>{t("bills.emptyTitle", { month: formatMonth(month) })}</EmptyTitle>
+            <EmptyTitle>{t("bills.emptyTitle")}</EmptyTitle>
             <EmptyDescription>{t("bills.emptyDescription")}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <div className="flex gap-2">
               <Button onClick={() => setCreating(true)}>{t("bills.emptyAdd")}</Button>
-              <Button variant="outline" onClick={() => setView("recurring")}>
-                {t("bills.emptyRecurring")}
-              </Button>
+              <Link href="/recurring">
+                <Button variant="outline">{t("bills.emptyRecurring")}</Button>
+              </Link>
             </div>
           </EmptyContent>
         </Empty>
       ) : (
-        <div className="overflow-x-auto rounded-lg ring-1 ring-foreground/10">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={selected.size > 0 && selected.size >= selectableIds.size}
-                    indeterminate={selected.size > 0 && selected.size < selectableIds.size}
-                    onCheckedChange={toggleAll}
-                    aria-label={t("bills.selectAll")}
-                  />
-                </TableHead>
-                <TableHead>{t("bills.colName")}</TableHead>
-                <TableHead className="hidden md:table-cell">{t("bills.colCategory")}</TableHead>
-                <TableHead>{t("bills.colDue")}</TableHead>
-                <TableHead className="text-right">{t("bills.colAmount")}</TableHead>
-                <TableHead className="w-36 text-right">{t("bills.colStatus")}</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <AnimatePresence initial={false}>
-                {rows.map((row) => (
-                  <BillTableRow
-                    key={row.id}
-                    bill={row}
-                    displayCurrency={displayCurrency}
-                    selected={selected.has(row.id)}
-                    selectable={selectableIds.has(row.id)}
-                    onToggle={() => toggle(row.id)}
-                    onPaid={() => deselect(row.id)}
-                    onUnpay={() => unpaySingle(row)}
-                    onSetWontPay={(wontPay) => setWontPayFor(row, wontPay)}
-                    onEdit={() => setEditing(row)}
-                    onDelete={() => setDeleting(row)}
-                  />
-                ))}
-              </AnimatePresence>
-            </TableBody>
-          </Table>
+        <div className="flex flex-col gap-2">
+          {showFallback ? (
+            <p className="text-xs text-muted-foreground">
+              {t("bills.fallbackNotice", { count: fallbackRows.length })}
+            </p>
+          ) : null}
+          <BillsTable
+            rows={showFallback ? fallbackRows : rows}
+            categories={categories.data ?? []}
+            globalFilter={showFallback ? "" : search}
+            onGlobalFilterChange={setSearch}
+            columnFilters={showFallback ? [] : columnFilters}
+            onColumnFiltersChange={setColumnFilters}
+            onClearFilters={clearFilters}
+            // The disabled fallback query keeps its last page as placeholder
+            // forever, so only let it dim the table while it's actually in use.
+            isFetching={bills.isPlaceholderData || (localMisses && fallback.isPlaceholderData)}
+            searchingFallback={searchingFallback}
+            meta={tableMeta}
+          />
         </div>
       )}
 
@@ -436,7 +459,9 @@ export default function BillsPage() {
               </SelectContent>
             </Select>
             <Button size="sm" onClick={bulkPay} disabled={bulkPayMutation.isPending}>
-              {bulkPayMutation.isPending ? t("bills.paying") : t("bills.payN", { count: selected.size })}
+              {bulkPayMutation.isPending
+                ? t("bills.paying")
+                : t("bills.payN", { count: selected.size })}
             </Button>
           </div>
         </div>
@@ -451,14 +476,16 @@ export default function BillsPage() {
           }
         }}
         bill={editing}
-        defaultDate={`${month}-05`}
+        defaultDate={wholeMonth ? `${wholeMonth}-05` : range.from}
       />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={t("bills.deleteTitle", { name: deleting?.name ?? "" })}
-        description={deleting?.paid ? t("bills.deletePaidDescription") : t("bills.deleteDescription")}
+        description={
+          deleting?.paid ? t("bills.deletePaidDescription") : t("bills.deleteDescription")
+        }
         confirmLabel={t("common.delete")}
         destructive
         onConfirm={() => {
@@ -476,150 +503,6 @@ export default function BillsPage() {
           );
         }}
       />
-        </>
-      )}
     </div>
-  );
-}
-
-const STATUS_BADGE: Record<BillStatus, { labelKey: MessageKey; className: string }> = {
-  paid: { labelKey: "status.paid", className: "bg-success/15 text-success" },
-  overdue: { labelKey: "status.overdue", className: "bg-destructive/15 text-destructive" },
-  "due-soon": { labelKey: "status.dueSoon", className: "bg-warning/15 text-warning" },
-  pending: { labelKey: "status.pending", className: "bg-muted text-muted-foreground" },
-  "wont-pay": { labelKey: "status.wontPay", className: "bg-muted text-muted-foreground/80 line-through" },
-};
-
-function BillTableRow({
-  bill,
-  displayCurrency,
-  selected,
-  selectable,
-  onToggle,
-  onPaid,
-  onUnpay,
-  onSetWontPay,
-  onEdit,
-  onDelete,
-}: {
-  bill: BillRow;
-  displayCurrency: Currency;
-  selected: boolean;
-  selectable: boolean;
-  onToggle: () => void;
-  onPaid: () => void;
-  onUnpay: () => void;
-  onSetWontPay: (wontPay: boolean) => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const t = useT();
-  const { formatDate } = useFormat();
-  const reduced = useReducedMotion();
-  const status = billStatus(bill);
-  const badge = STATUS_BADGE[status];
-  const isCardCharge = Boolean(bill.creditCardId);
-
-  return (
-    <motion.tr
-      layout={!reduced}
-      initial={reduced ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={reduced ? undefined : { opacity: 0, height: 0 }}
-      className="border-b border-border transition-colors last:border-0 hover:bg-muted/40 data-[selected=true]:bg-primary/5"
-      data-selected={selected}
-    >
-      <TableCell className="w-10">
-        {selectable ? (
-          <Checkbox
-            checked={selected}
-            onCheckedChange={onToggle}
-            aria-label={t("bills.select", { name: bill.name })}
-          />
-        ) : null}
-      </TableCell>
-      <TableCell className="max-w-48">
-        <div className="flex flex-col">
-          <span
-            className={`truncate text-xs font-medium ${bill.wontPay ? "text-muted-foreground" : ""}`}
-          >
-            {bill.name}
-            {bill.installmentNumber && bill.installmentTotal ? (
-              <span className="text-muted-foreground"> · {bill.installmentNumber}/{bill.installmentTotal}</span>
-            ) : null}
-          </span>
-          {isCardCharge ? (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <CreditCardIcon className="size-3" /> {bill.creditCard?.name}
-            </span>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">
-        {bill.category ? (
-          <Badge
-            variant="outline"
-            className="text-[10px]"
-            style={bill.category.color ? { color: bill.category.color } : undefined}
-          >
-            {bill.category.name}
-          </Badge>
-        ) : null}
-      </TableCell>
-      <TableCell
-        className={`text-xs tabular-nums ${
-          status === "overdue" ? "text-destructive" : status === "due-soon" ? "text-warning" : ""
-        }`}
-      >
-        {formatDate(bill.dueDate)}
-      </TableCell>
-      <TableCell
-        className={`text-right text-xs tabular-nums ${
-          bill.wontPay ? "text-muted-foreground line-through" : ""
-        }`}
-      >
-        <span className="inline-flex items-center gap-1.5">
-          <CurrencyChip currency={bill.currency} show={bill.currency !== displayCurrency} />
-          {formatMoney(bill.amount, bill.currency)}
-        </span>
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1.5">
-          <Badge className={`border-transparent text-[10px] ${badge.className}`}>{t(badge.labelKey)}</Badge>
-          {!bill.paid && !bill.wontPay && !isCardCharge ? (
-            <PayBillButton bill={bill} onPaid={onPaid} />
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell className="w-10">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="icon-xs" aria-label={t("common.actionsFor", { name: bill.name })} />}
-          >
-            <MoreHorizontalIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>{t("common.edit")}</DropdownMenuItem>
-            {bill.paid ? (
-              <DropdownMenuItem onClick={onUnpay}>{t("bills.markUnpaid")}</DropdownMenuItem>
-            ) : null}
-            {!bill.paid && !isCardCharge ? (
-              bill.wontPay ? (
-                <DropdownMenuItem onClick={() => onSetWontPay(false)}>
-                  {t("bills.unmarkWontPay")}
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onClick={() => onSetWontPay(true)}>
-                  {t("bills.markWontPay")}
-                </DropdownMenuItem>
-              )
-            ) : null}
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              {t("common.delete")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </motion.tr>
   );
 }

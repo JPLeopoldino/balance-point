@@ -69,13 +69,16 @@ export const billsRouter = router({
           from: isoDateSchema.optional(),
           to: isoDateSchema.optional(),
           search: z.string().optional(),
+          /** Drop the default current-month scope (bills-screen search fallback). */
+          allTime: z.boolean().optional(),
         })
         .optional(),
     )
     .query(({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const useRange = Boolean(input?.from ?? input?.to);
-      const month = useRange ? undefined : (input?.month ?? currentMonth());
+      const month =
+        useRange || input?.allTime ? undefined : (input?.month ?? currentMonth());
       return db.query.bill.findMany({
         where: and(
           eq(bill.userId, userId),
@@ -396,6 +399,50 @@ export const billsRouter = router({
         const monthBills = rows.filter((r) => r.month === month && !r.creditCardId);
         return { month, ...monthRollup(monthBills, conv) };
       });
+    }),
+
+  /**
+   * Roll-up for an arbitrary due-date range, in the display currency — feeds
+   * the Bills screen summary cards. Card charges are excluded like in
+   * `monthSummary` (they settle via the statement bill, §4.3).
+   */
+  rangeSummary: protectedProcedure
+    .input(z.object({ from: isoDateSchema, to: isoDateSchema }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+      const rates = await loadFxRates(db, userId);
+      const { conv } = createSafeConverter(rates, settings.displayCurrency);
+
+      const rows = await db.query.bill.findMany({
+        where: and(
+          eq(bill.userId, userId),
+          gte(bill.dueDate, input.from),
+          lte(bill.dueDate, input.to),
+        ),
+        columns: {
+          amount: true,
+          currency: true,
+          paid: true,
+          wontPay: true,
+          creditCardId: true,
+          dueDate: true,
+        },
+      });
+
+      const payables = rows.filter((r) => !r.creditCardId);
+      const today = todayISO();
+      const overdue = payables.filter((r) => !r.paid && !r.wontPay && r.dueDate < today);
+      return {
+        ...monthRollup(payables, conv),
+        overdueBills: sumMoney(...overdue.map((r) => conv(r.amount, r.currency))),
+        displayCurrency: settings.displayCurrency,
+        count: payables.length,
+        paidCount: payables.filter((r) => r.paid).length,
+        openCount: payables.filter((r) => !r.paid && !r.wontPay).length,
+        overdueCount: overdue.length,
+        wontPayCount: payables.filter((r) => r.wontPay).length,
+      };
     }),
 
   /** Paid spending grouped by category (doc 04 §4.13), in the display currency. */

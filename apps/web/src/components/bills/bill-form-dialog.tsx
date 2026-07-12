@@ -308,11 +308,11 @@ export function BillFormDialog({
               className="text-muted-foreground"
               onClick={() => {
                 onOpenChange(false);
-                const params = new URLSearchParams({ view: "recurring" });
+                const params = new URLSearchParams();
                 if (form.name.trim()) params.set("name", form.name.trim());
                 if (form.amount) params.set("amount", String(form.amount));
                 params.set("currency", form.currency);
-                router.push(`/bills?${params.toString()}` as Route);
+                router.push(`/recurring?${params.toString()}` as Route);
               }}
             >
               <RefreshCcwIcon data-icon="inline-start" /> {t("billForm.makeRecurring")}

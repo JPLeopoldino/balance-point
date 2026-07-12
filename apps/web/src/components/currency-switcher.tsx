@@ -7,13 +7,13 @@ import { useDisplayCurrency } from "@/hooks/use-display-currency";
 import { useT } from "@/i18n";
 
 /** BRL ⇄ USD display-currency toggle (doc 09 §9.1). */
-export function CurrencySwitcher() {
+export function CurrencySwitcher({ className = "" }: { className?: string }) {
   const { currency, setCurrency } = useDisplayCurrency();
   const t = useT();
 
   return (
     <div
-      className="flex items-center rounded-md border border-border p-0.5"
+      className={`flex items-center rounded-md border border-border p-0.5 ${className}`}
       role="group"
       aria-label={t("currencySwitcher.label")}
     >

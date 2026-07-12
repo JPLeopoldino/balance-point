@@ -6,10 +6,12 @@ import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
+import { ensureUpToDate } from "../lib/automation";
 import { cardUsage } from "../lib/credit";
 import { createSafeConverter, loadFxRates } from "../lib/fx";
 import { normalizeLocale } from "../lib/locale";
 import { ensureUserDefaults } from "../lib/seed";
+import { refreshCardStatements } from "../lib/statements";
 import { currencySchema, dayOfMonthSchema, idSchema, positiveMoneySchema } from "../lib/validation";
 
 async function ownedCard(userId: string, id: string) {
@@ -41,7 +43,8 @@ export const cardsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        bankAccountId: idSchema,
+        // A card may live without a host account.
+        bankAccountId: idSchema.optional(),
         name: z.string().min(1),
         brand: z.string().optional(),
         creditLimit: positiveMoneySchema,
@@ -54,10 +57,12 @@ export const cardsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const host = await db.query.bankAccount.findFirst({
-        where: and(eq(bankAccount.id, input.bankAccountId), eq(bankAccount.userId, userId)),
-      });
-      if (!host) throw new TRPCError({ code: "FORBIDDEN", message: "Host account not found" });
+      if (input.bankAccountId) {
+        const host = await db.query.bankAccount.findFirst({
+          where: and(eq(bankAccount.id, input.bankAccountId), eq(bankAccount.userId, userId)),
+        });
+        if (!host) throw new TRPCError({ code: "FORBIDDEN", message: "Host account not found" });
+      }
       const existing = await db
         .select({ id: creditCard.id })
         .from(creditCard)
@@ -73,7 +78,7 @@ export const cardsRouter = router({
     .input(
       z.object({
         id: idSchema,
-        bankAccountId: idSchema.optional(),
+        bankAccountId: idSchema.nullish(),
         name: z.string().min(1).optional(),
         brand: z.string().nullish(),
         creditLimit: positiveMoneySchema.optional(),
@@ -87,7 +92,7 @@ export const cardsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await ownedCard(userId, input.id);
+      const existing = await ownedCard(userId, input.id);
       if (input.bankAccountId) {
         const host = await db.query.bankAccount.findFirst({
           where: and(eq(bankAccount.id, input.bankAccountId), eq(bankAccount.userId, userId)),
@@ -100,6 +105,11 @@ export const cardsRouter = router({
         .set(editable)
         .where(and(eq(creditCard.id, id), eq(creditCard.userId, userId)))
         .returning();
+      // Statement schedule changed — regenerate/re-aim the open fatura.
+      if (updated!.dueDay !== existing.dueDay || updated!.closingDay !== existing.closingDay) {
+        const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+        await refreshCardStatements(userId, normalizeLocale(settings.locale));
+      }
       return updated!;
     }),
 
@@ -121,7 +131,7 @@ export const cardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       await ownedCard(userId, input.id);
-      const [recurringRefs, billRefs] = await Promise.all([
+      const [recurringRefs, billRefs, statementRefs] = await Promise.all([
         db
           .select({ id: recurringExpense.id })
           .from(recurringExpense)
@@ -134,8 +144,13 @@ export const cardsRouter = router({
           .from(bill)
           .where(and(eq(bill.userId, userId), eq(bill.creditCardId, input.id)))
           .limit(1),
+        db
+          .select({ id: bill.id })
+          .from(bill)
+          .where(and(eq(bill.userId, userId), eq(bill.statementCardId, input.id)))
+          .limit(1),
       ]);
-      if (recurringRefs.length > 0 || billRefs.length > 0) {
+      if (recurringRefs.length > 0 || billRefs.length > 0 || statementRefs.length > 0) {
         throw new TRPCError({
           code: "CONFLICT",
           message:
@@ -153,6 +168,7 @@ export const cardsRouter = router({
     .input(z.object({ displayCurrency: currencySchema.optional() }).optional())
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+      await ensureUpToDate(userId, ctx.preferredLocale);
       const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
       const displayCurrency = input?.displayCurrency ?? settings.displayCurrency;
       const locale = normalizeLocale(settings.locale);
@@ -200,6 +216,9 @@ export const cardsRouter = router({
         totalUsed: sumMoney(...perCard.map(({ card, usage }) => conv(usage.used, card.currency))),
         totalLimit: sumMoney(
           ...perCard.map(({ card }) => conv(card.creditLimit, card.currency)),
+        ),
+        totalCommittedMonthly: sumMoney(
+          ...perCard.map(({ card, usage }) => conv(usage.committedMonthly, card.currency)),
         ),
         displayCurrency,
         cards: perCard.map(({ card, usage }) => ({

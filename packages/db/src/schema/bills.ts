@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   bigint,
   boolean,
@@ -34,6 +35,8 @@ export const bill = pgTable(
     paidFromAccountId: text("paid_from_account_id").references(() => bankAccount.id, {
       onDelete: "set null",
     }),
+    // Deliberately paid with no bank debit — unpay must not refund an account.
+    paidWithoutAccount: boolean("paid_without_account").notNull().default(false),
     // FX rate applied when paid cross-currency (scaled 1e6); replayed on unpay.
     paidFxRate: bigint("paid_fx_rate", { mode: "number" }),
     sourceAccountId: text("source_account_id").references(() => bankAccount.id, {
@@ -41,6 +44,15 @@ export const bill = pgTable(
     }),
     // Card charge if set — settled via the card's statement, never paid directly (§4.5).
     creditCardId: text("credit_card_id").references(() => creditCard.id, { onDelete: "set null" }),
+    // Auto-generated statement ("fatura") of this card for `month`; paying it
+    // settles the card's covered charges and frees the limit.
+    statementCardId: text("statement_card_id").references(() => creditCard.id, {
+      onDelete: "cascade",
+    }),
+    // For card charges: the statement bill that settled this charge.
+    settledByBillId: text("settled_by_bill_id").references((): AnyPgColumn => bill.id, {
+      onDelete: "set null",
+    }),
     categoryId: text("category_id").references(() => category.id, { onDelete: "set null" }),
     recurringExpenseId: text("recurring_expense_id").references(() => recurringExpense.id, {
       onDelete: "set null",
@@ -59,5 +71,6 @@ export const bill = pgTable(
     index("bill_due_idx").on(t.userId, t.dueDate),
     index("bill_recurring_month_idx").on(t.recurringExpenseId, t.month), // idempotency (§4.9)
     index("bill_card_idx").on(t.userId, t.creditCardId),
+    index("bill_statement_month_idx").on(t.statementCardId, t.month), // one fatura per card+month
   ],
 );

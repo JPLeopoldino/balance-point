@@ -9,9 +9,10 @@ export const creditCard = pgTable(
   {
     id: id(),
     userId: userId(),
-    bankAccountId: text("bank_account_id")
-      .notNull()
-      .references(() => bankAccount.id, { onDelete: "cascade" }),
+    // Optional host account — a card can live on its own (§4.3).
+    bankAccountId: text("bank_account_id").references(() => bankAccount.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
     brand: text("brand"),
     creditLimit: money("credit_limit").notNull(),

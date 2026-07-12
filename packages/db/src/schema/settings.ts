@@ -13,5 +13,8 @@ export const userSettings = pgTable("user_settings", {
   weekStartsOn: integer("week_starts_on").notNull().default(1), // Monday
   locale: text("locale").notNull().default("pt-BR"),
   theme: text("theme").notNull().default("dark"),
+  // Daily-automation gate ('YYYY-MM-DD'): yields, recurring bills, subscription
+  // auto-pay and card statements run once per calendar day, lazily.
+  lastAutoRunDay: text("last_auto_run_day"),
   ...timestamps,
 });

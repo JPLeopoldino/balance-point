@@ -29,7 +29,8 @@ export const creditCardRelations = relations(creditCard, ({ one, many }) => ({
     references: [bankAccount.id],
   }),
   recurringExpenses: many(recurringExpense),
-  bills: many(bill),
+  bills: many(bill, { relationName: "cardCharges" }),
+  statements: many(bill, { relationName: "cardStatements" }),
 }));
 
 export const billRelations = relations(bill, ({ one }) => ({
@@ -48,6 +49,12 @@ export const billRelations = relations(bill, ({ one }) => ({
   creditCard: one(creditCard, {
     fields: [bill.creditCardId],
     references: [creditCard.id],
+    relationName: "cardCharges",
+  }),
+  statementCard: one(creditCard, {
+    fields: [bill.statementCardId],
+    references: [creditCard.id],
+    relationName: "cardStatements",
   }),
   recurringExpense: one(recurringExpense, {
     fields: [bill.recurringExpenseId],

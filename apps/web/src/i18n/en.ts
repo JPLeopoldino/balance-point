@@ -51,6 +51,16 @@ export const en = {
     main: "Main",
     addBill: "Add bill",
   },
+  /** Subtitles under each screen's in-page title (doc 08 §8.8). */
+  page: {
+    dashboardDescription: "Where your money stands today.",
+    billsDescription: "Everything due in the period — pay, skip or plan ahead.",
+    accountsDescription: "Checking and invested balances across your banks.",
+    cardsDescription: "Limits, usage and what each card commits per month.",
+    projectionDescription: "Where your balance is heading, month by month.",
+    plansDescription: "Simulate a purchase before committing to it.",
+    settingsDescription: "Currency, income, categories and your account.",
+  },
   auth: {
     welcomeBack: "Welcome back",
     createAccount: "Create account",
@@ -232,7 +242,7 @@ export const en = {
   },
   accounts: {
     title: "Accounts",
-    addButton: "+ Add account",
+    addButton: "Add account",
     emptyTitle: "No accounts yet",
     emptyDescription:
       "Add your first bank account — its checking and investment balances feed every number on the dashboard.",
@@ -271,13 +281,14 @@ export const en = {
   cards: {
     title: "Cards",
     header: "Total free credit {available} · used {used} of {limit}",
-    addButton: "+ Add card",
+    addButton: "Add card",
     kpiLimit: "Total limit",
     kpiUsed: "Used",
     kpiUsedHint: "open charges",
     kpiAvailable: "Available",
     kpiAvailableHint: "free across cards",
     kpiCommitted: "Committed / mo",
+    kpiCommittedShort: "Committed",
     kpiCommittedHint: "recurring on cards",
     countCards_one: "{count} card",
     countCards_other: "{count} cards",
@@ -320,7 +331,7 @@ export const en = {
   subscriptions: {
     title: "Subscriptions",
     header: "Monthly {monthly} · On cards {onCards} (credit cost)",
-    addButton: "+ Subscription",
+    addButton: "Subscription",
     emptyTitle: "No subscriptions yet",
     emptyDescription:
       "Track streaming, gym and SaaS — they show up with your bills and pay themselves on the renewal day (card subscriptions settle via the fatura).",
@@ -341,7 +352,7 @@ export const en = {
   },
   recurring: {
     intro: "Templates create one editable bill per charge month automatically — no button to press.",
-    addButton: "+ Template",
+    addButton: "Template",
     emptyTitle: "No recurring templates",
     emptyDescription: "Rent, loans, taxes — templates create one editable bill per month, automatically.",
     emptyAdd: "Create a template",

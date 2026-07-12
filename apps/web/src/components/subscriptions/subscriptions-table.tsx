@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@balance-point/ui/components/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CreditCardIcon, MoreHorizontalIcon, RepeatIcon } from "lucide-react";
+import { CreditCardIcon, MoreHorizontalIcon, PlusIcon, RepeatIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -78,7 +78,7 @@ export function SubscriptionsTable() {
           })}
         </span>
         <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-          {t("subscriptions.addButton")}
+          <PlusIcon data-icon="inline-start" /> {t("subscriptions.addButton")}
         </Button>
       </div>
 

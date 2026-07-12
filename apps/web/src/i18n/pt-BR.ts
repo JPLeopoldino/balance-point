@@ -47,6 +47,15 @@ export const ptBR: Messages = {
     main: "Principal",
     addBill: "Nova conta",
   },
+  page: {
+    dashboardDescription: "Como seu dinheiro está hoje.",
+    billsDescription: "Tudo que vence no período — pague, adie ou planeje.",
+    accountsDescription: "Saldos em conta e investidos, banco a banco.",
+    cardsDescription: "Limites, uso e o quanto cada cartão compromete por mês.",
+    projectionDescription: "Para onde seu saldo caminha, mês a mês.",
+    plansDescription: "Simule uma compra antes de assumi-la.",
+    settingsDescription: "Moeda, renda, categorias e sua conta.",
+  },
   auth: {
     welcomeBack: "Bem-vindo de volta",
     createAccount: "Criar conta",
@@ -231,7 +240,7 @@ export const ptBR: Messages = {
   },
   accounts: {
     title: "Bancos",
-    addButton: "+ Adicionar banco",
+    addButton: "Adicionar banco",
     emptyTitle: "Nenhum banco ainda",
     emptyDescription:
       "Adicione seu primeiro banco — os saldos corrente e investido alimentam todos os números do painel.",
@@ -272,13 +281,14 @@ export const ptBR: Messages = {
   cards: {
     title: "Cartões",
     header: "Crédito livre total {available} · usado {used} de {limit}",
-    addButton: "+ Adicionar cartão",
+    addButton: "Adicionar cartão",
     kpiLimit: "Limite total",
     kpiUsed: "Usado",
     kpiUsedHint: "gastos em aberto",
     kpiAvailable: "Disponível",
     kpiAvailableHint: "livre nos cartões",
     kpiCommitted: "Comprometido / mês",
+    kpiCommittedShort: "Comprometido",
     kpiCommittedHint: "recorrências nos cartões",
     countCards_one: "{count} cartão",
     countCards_other: "{count} cartões",
@@ -324,7 +334,7 @@ export const ptBR: Messages = {
   subscriptions: {
     title: "Assinaturas",
     header: "Mensal {monthly} · Nos cartões {onCards} (custo do crédito)",
-    addButton: "+ Assinatura",
+    addButton: "Assinatura",
     emptyTitle: "Nenhuma assinatura ainda",
     emptyDescription:
       "Acompanhe streaming, academia e SaaS — elas aparecem junto das contas e se pagam sozinhas no dia da renovação (no cartão, quitam pela fatura).",
@@ -347,7 +357,7 @@ export const ptBR: Messages = {
   recurring: {
     intro:
       "Modelos criam uma conta editável por mês de cobrança automaticamente — sem botão para apertar.",
-    addButton: "+ Modelo",
+    addButton: "Modelo",
     emptyTitle: "Nenhum modelo recorrente",
     emptyDescription:
       "Aluguel, financiamentos, impostos — modelos criam uma conta editável por mês, automaticamente.",

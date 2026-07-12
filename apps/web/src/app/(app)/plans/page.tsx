@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CurrencySelect } from "@/components/currency-select";
 import { MoneyInput } from "@/components/money-input";
+import { PageHeader } from "@/components/page-header";
 import { PlanSimulationChart } from "@/components/plans/plan-simulation-chart";
 import { useFormat, useT } from "@/i18n";
 import type { PlanRow } from "@/lib/api-types";
@@ -103,8 +104,8 @@ export default function PlansPage() {
     selectedPlan?.mode === "installments" ? (selectedPlan.installments ?? 1) : 1;
 
   return (
-    <div className="flex flex-col gap-4">
-      <h2 className="text-base font-semibold">{t("plans.title")}</h2>
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t("plans.title")} description={t("page.plansDescription")} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         {/* Plans list */}

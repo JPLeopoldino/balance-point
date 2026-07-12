@@ -45,6 +45,7 @@ import { type Locale, useFormat, useLocale, useT } from "@/i18n";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CurrencySelect } from "@/components/currency-select";
 import { MoneyInput } from "@/components/money-input";
+import { PageHeader } from "@/components/page-header";
 import { authClient } from "@/lib/auth-client";
 import type { CategoryRow, IncomeRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
@@ -62,15 +63,14 @@ export default function SettingsPage() {
   const [tab, setTab] = useState(searchParams.get("tab") === "activity" ? "activity" : "general");
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <PageHeader title={t("settings.title")} description={t("page.settingsDescription")} />
+
       <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "general")}>
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold">{t("settings.title")}</h2>
-          <TabsList>
-            <TabsTrigger value="general">{t("settings.tabGeneral")}</TabsTrigger>
-            <TabsTrigger value="activity">{t("nav.activity")}</TabsTrigger>
-          </TabsList>
-        </div>
+        <TabsList>
+          <TabsTrigger value="general">{t("settings.tabGeneral")}</TabsTrigger>
+          <TabsTrigger value="activity">{t("nav.activity")}</TabsTrigger>
+        </TabsList>
         <TabsContent value="general" className="flex flex-col gap-4">
           <ProfileSection />
           <CurrencySection />

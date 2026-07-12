@@ -36,7 +36,7 @@ import {
   TableRow,
 } from "@balance-point/ui/components/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CreditCardIcon, MoreHorizontalIcon, RefreshCcwIcon } from "lucide-react";
+import { CreditCardIcon, MoreHorizontalIcon, PlusIcon, RefreshCcwIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -77,7 +77,7 @@ export function RecurringTemplates({ prefill }: { prefill?: RecurringPrefill }) 
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-muted-foreground">{t("recurring.intro")}</p>
         <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-          {t("recurring.addButton")}
+          <PlusIcon data-icon="inline-start" /> {t("recurring.addButton")}
         </Button>
       </div>
 

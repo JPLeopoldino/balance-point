@@ -131,6 +131,20 @@ export function useFormat() {
       year: "numeric",
       timeZone: "UTC",
     });
+    // Compact pieces for phone chrome, where "julho de 2026" doesn't fit.
+    const monthName = new Intl.DateTimeFormat(tag, { month: "long", timeZone: "UTC" });
+    const yearShort = new Intl.DateTimeFormat(tag, { year: "2-digit", timeZone: "UTC" });
+    const dayMonth = new Intl.DateTimeFormat(tag, {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "UTC",
+    });
+    const dayMonthYear = new Intl.DateTimeFormat(tag, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+      timeZone: "UTC",
+    });
     const dateTime = new Intl.DateTimeFormat(tag, {
       month: "short",
       day: "numeric",
@@ -142,9 +156,17 @@ export function useFormat() {
       formatMonth: (month: string) => monthLong.format(new Date(`${month}-01T00:00:00Z`)),
       /** 'YYYY-MM' → "Jul 26" / "jul. 26" (chart axes). */
       formatMonthShort: (month: string) => monthShort.format(new Date(`${month}-01T00:00:00Z`)),
+      /** 'YYYY-MM' → "June/26" / "junho/26" — the month label on a phone. */
+      formatMonthCompact: (month: string) => {
+        const date = new Date(`${month}-01T00:00:00Z`);
+        return `${monthName.format(date)}/${yearShort.format(date)}`;
+      },
       /** 'YYYY-MM-DD' → "Jul 5" / "5 de jul." (optionally with year). */
       formatDate: (isoDate: string, { withYear = false }: { withYear?: boolean } = {}) =>
         (withYear ? dateLong : dateShort).format(new Date(`${isoDate}T00:00:00Z`)),
+      /** 'YYYY-MM-DD' → "07/05" / "05/07" (numeric, optionally with year). */
+      formatDateCompact: (isoDate: string, { withYear = false }: { withYear?: boolean } = {}) =>
+        (withYear ? dayMonthYear : dayMonth).format(new Date(`${isoDate}T00:00:00Z`)),
       formatDateTime: (date: Date | string) => dateTime.format(new Date(date)),
     };
   }, [locale]);

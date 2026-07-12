@@ -43,7 +43,8 @@ import {
   rangeMonth,
 } from "@/components/bills/date-range-filter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { KpiCard } from "@/components/kpi-card";
+import { KpiSummary } from "@/components/kpi-summary";
+import { PageHeader } from "@/components/page-header";
 import type { RecurringPrefill } from "@/components/recurring/recurring-form-dialog";
 import { RecurringTemplates } from "@/components/recurring/recurring-templates";
 import { useDisplayCurrency } from "@/hooks/use-display-currency";
@@ -308,71 +309,102 @@ export default function BillsPage() {
   const summaryLoading = summary.isLoading;
 
   return (
-    <div className="flex flex-col gap-4 pb-20">
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t("bills.title")} description={t("page.billsDescription")}>
+        <Button onClick={() => setCreating(true)}>
+          <PlusIcon data-icon="inline-start" /> {t("nav.addBill")}
+        </Button>
+      </PageHeader>
+
       <Tabs value={tab} onValueChange={(v) => setTab((v as string) ?? "bills")}>
-        <TabsList>
-          <TabsTrigger value="bills">{t("nav.bills")}</TabsTrigger>
-          <TabsTrigger value="recurring">{t("nav.recurring")}</TabsTrigger>
-        </TabsList>
+        {/* flex-wrap is the safety net: a long month ("setembro/26") in a narrow
+            phone drops the period to its own line instead of being clipped. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="bills">{t("nav.bills")}</TabsTrigger>
+            <TabsTrigger value="recurring">{t("nav.recurring")}</TabsTrigger>
+          </TabsList>
+          {/*
+           * On a phone the period rides on the tab row — it's the only spare
+           * horizontal space on the screen, and it saves the toolbar a whole
+           * line. On desktop it stays with search and bank in the toolbar.
+           * It filters bills only, so it's hidden on the Recurring tab.
+           */}
+          {tab === "bills" ? (
+            <div className="md:hidden">
+              <DateRangeFilter value={range} onChange={updateRange} compact />
+            </div>
+          ) : null}
+        </div>
 
         <TabsContent value="bills" className="flex flex-col gap-4">
       {/* Period roll-up in the display currency (doc 04 §4.4) */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard
-          label={t("bills.summaryTotal")}
-          value={s?.totalBills ?? 0}
-          currency={displayCurrency}
-          index={0}
-          loading={summaryLoading}
-          sublabel={
-            s
-              ? s.wontPayCount > 0
+      <KpiSummary
+        loading={summaryLoading}
+        stats={[
+          {
+            label: t("bills.summaryTotal"),
+            shortLabel: t("bills.summaryTotalShort"),
+            value: s?.totalBills ?? 0,
+            currency: displayCurrency,
+            // Always pass a sublabel — an absent one while loading would make
+            // the card shorter, then taller, shifting the row under it.
+            sublabel:
+              s && s.wontPayCount > 0
                 ? `${t("bills.countBills", { count: s.count })} · ${t("bills.wontPayShort", {
                     amount: formatMoney(s.wontPayBills, displayCurrency),
                   })}`
-                : t("bills.countBills", { count: s.count })
-              : undefined
-          }
-        />
-        <KpiCard
-          label={t("bills.summaryPaid")}
-          value={s?.paidBills ?? 0}
-          currency={displayCurrency}
-          index={1}
-          loading={summaryLoading}
-          sublabel={s ? t("bills.countPaid", { count: s.paidCount }) : undefined}
-        />
-        <KpiCard
-          label={t("bills.summaryRemaining")}
-          value={s?.remainingBills ?? 0}
-          currency={displayCurrency}
-          index={2}
-          emphasis
-          loading={summaryLoading}
-          sublabel={s ? t("bills.countOpen", { count: s.openCount }) : undefined}
-        />
-        <KpiCard
-          label={t("bills.summaryOverdue")}
-          value={s?.overdueBills ?? 0}
-          currency={displayCurrency}
-          index={3}
-          destructive={(s?.overdueBills ?? 0) > 0}
-          loading={summaryLoading}
-          sublabel={s ? t("bills.countOverdue", { count: s.overdueCount }) : undefined}
-        />
-      </section>
+                : t("bills.countBills", { count: s?.count ?? 0 }),
+          },
+          {
+            label: t("bills.summaryPaid"),
+            value: s?.paidBills ?? 0,
+            currency: displayCurrency,
+            sublabel: t("bills.countPaid", { count: s?.paidCount ?? 0 }),
+          },
+          {
+            label: t("bills.summaryRemaining"),
+            value: s?.remainingBills ?? 0,
+            currency: displayCurrency,
+            emphasis: true,
+            sublabel: t("bills.countOpen", { count: s?.openCount ?? 0 }),
+          },
+          {
+            label: t("bills.summaryOverdue"),
+            value: s?.overdueBills ?? 0,
+            currency: displayCurrency,
+            destructive: (s?.overdueBills ?? 0) > 0,
+            sublabel: t("bills.countOverdue", { count: s?.overdueCount ?? 0 }),
+          },
+        ]}
+      />
 
-      {/* One-line toolbar: search · bank · period · actions (doc 09 §9.3) */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+      {/*
+       * Search · bank · period. Wraps only on a phone — `md:flex-nowrap` makes
+       * a second row structurally impossible on desktop, and the search (the
+       * one shrinkable item) gives way if the window gets tight.
+       */}
+      <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
+        {/*
+         * Search owns the whole first row on a phone. It used to be `flex-1`
+         * beside two fixed-width siblings, so its `flex-basis: 0` collapsed it
+         * to a ~50px stub the moment the row filled up (~430px wide), and the
+         * bank select ended up drawn straight over it.
+         */}
+        <div className="relative w-full md:w-48 md:min-w-0">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground md:left-2.5 md:size-3.5" />
           <Input
             value={search}
             placeholder={t("bills.searchPlaceholder")}
-            className="h-8 w-48 pl-8"
+            className="h-10 w-full pl-10 md:h-8 md:pl-8"
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        {/*
+         * Bank and period are desktop-only here: on a phone the bank lives in
+         * the filters sheet (with the other column filters it belongs beside)
+         * and the period rides on the tab row above.
+         */}
         <Select
           value={accountFilter}
           onValueChange={(v) => setAccountFilter((v as string) ?? ALL)}
@@ -381,7 +413,7 @@ export default function BillsPage() {
             ...activeAccounts.map((a) => ({ value: a.id, label: a.name })),
           ]}
         >
-          <SelectTrigger size="sm">
+          <SelectTrigger size="sm" className="hidden md:flex md:flex-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -393,11 +425,8 @@ export default function BillsPage() {
             ))}
           </SelectContent>
         </Select>
-        <DateRangeFilter value={range} onChange={updateRange} />
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <PlusIcon data-icon="inline-start" /> {t("nav.addBill")}
-          </Button>
+        <div className="hidden md:flex">
+          <DateRangeFilter value={range} onChange={updateRange} />
         </div>
       </div>
 
@@ -431,6 +460,7 @@ export default function BillsPage() {
           <BillsTable
             rows={showFallback ? fallbackRows : rows}
             categories={categories.data ?? []}
+            accounts={activeAccounts}
             globalFilter={showFallback ? "" : search}
             onGlobalFilterChange={setSearch}
             columnFilters={showFallback ? [] : columnFilters}
@@ -445,9 +475,12 @@ export default function BillsPage() {
         </div>
       )}
 
-      {/* Bulk-select bar (doc 09 §9.3) */}
+      {/*
+       * Bulk-select bar (doc 09 §9.3). On a phone it must sit *above* the
+       * floating tab bar, not under it — hence `bottom: nav-occupies + 8px`.
+       */}
       {selected.size > 0 ? (
-        <div className="fixed inset-x-3 bottom-20 z-40 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 shadow-lg md:sticky md:bottom-4 md:inset-x-auto">
+        <div className="fixed inset-x-4 bottom-[calc(var(--nav-occupies)+0.5rem)] z-40 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2.5 shadow-lg md:sticky md:inset-x-auto md:bottom-4">
           <span className="text-xs font-medium">
             {t("bills.selected", { count: selected.size })} ·{" "}
             <span className="tabular-nums">
@@ -459,8 +492,10 @@ export default function BillsPage() {
               ))}
             </span>
           </span>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">{t("bills.payFrom")}</span>
+          <div className="ml-auto flex items-center gap-2 max-md:w-full">
+            <span className="hidden text-xs text-muted-foreground md:inline">
+              {t("bills.payFrom")}
+            </span>
             <Select
               value={payFromOverride}
               onValueChange={(v) => setPayFromOverride((v as string) ?? ALL)}
@@ -469,7 +504,7 @@ export default function BillsPage() {
                 ...activeAccounts.map((a) => ({ value: a.id, label: a.name })),
               ]}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger size="sm" className="min-w-0 flex-1 md:flex-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

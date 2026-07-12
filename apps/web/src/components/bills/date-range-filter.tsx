@@ -52,27 +52,37 @@ function dateToISO(date: Date): string {
 export function DateRangeFilter({
   value,
   onChange,
+  compact = false,
 }: {
   value: BillsRange;
   onChange: (range: BillsRange) => void;
+  /** Phone chrome: "junho/26" instead of "junho de 2026", and no min width. */
+  compact?: boolean;
 }) {
   const t = useT();
   const { locale } = useLocale();
-  const { formatMonth, formatDate } = useFormat();
+  const { formatMonth, formatMonthCompact, formatDate, formatDateCompact } = useFormat();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<DateRange | undefined>();
 
   const month = rangeMonth(value);
   const isCurrentMonth = month === currentMonth();
+  const fmtMonth = compact ? formatMonthCompact : formatMonth;
+  const fmtDate = compact ? formatDateCompact : formatDate;
   const label = month
-    ? formatMonth(month)
+    ? fmtMonth(month)
     : value.from === value.to
-      ? formatDate(value.from, { withYear: true })
-      : `${formatDate(value.from)} – ${formatDate(value.to, { withYear: true })}`;
+      ? fmtDate(value.from, { withYear: true })
+      : `${fmtDate(value.from)} – ${fmtDate(value.to, { withYear: true })}`;
 
   // Arrows step whole months; a custom range jumps to its starting month first.
   function step(delta: number) {
-    onChange(monthToRange(addMonths(month ?? value.from.slice(0, 7), delta)));
+    const next = monthToRange(addMonths(month ?? value.from.slice(0, 7), delta));
+    onChange(next);
+    // Compact mode steps from inside the open popover, so the calendar's
+    // pending selection has to follow — otherwise Apply would commit the month
+    // the user stepped away from.
+    setPending({ from: isoToDate(next.from), to: isoToDate(next.to) });
   }
 
   function handleOpenChange(next: boolean) {
@@ -98,24 +108,49 @@ export function DateRangeFilter({
     { month: addMonths(currentMonth(), 1), label: t("dateFilter.nextMonth") },
   ];
 
+  const prevMonth = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={t("monthSwitcher.previous")}
+      onClick={() => step(-1)}
+    >
+      <ChevronLeftIcon />
+    </Button>
+  );
+  const nextMonth = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={t("monthSwitcher.next")}
+      onClick={() => step(1)}
+    >
+      <ChevronRightIcon />
+    </Button>
+  );
+
   return (
-    <div className="flex items-center gap-0.5">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={t("monthSwitcher.previous")}
-        onClick={() => step(-1)}
-      >
-        <ChevronLeftIcon />
-      </Button>
+    // shrink-0: the month label must stay legible — the bank select next to it
+    // is the one that gives way when the row is tight.
+    <div className="flex shrink-0 items-center gap-0.5">
+      {/*
+       * Compact mode drops the inline ‹ › arrows. Beside the tab pills on a
+       * 360px phone, 192px of tabs + two 40px targets + the label do not fit,
+       * and shrinking the arrows to force it would push them under the
+       * touch-target floor. They move into the popover instead — one tap
+       * further, but full size and never clipped.
+       */}
+      {compact ? null : prevMonth}
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger
           render={
             <Button
               variant="outline"
               size="sm"
-              aria-label={t("dateFilter.label")}
-              className={`min-w-36 justify-center font-medium ${isCurrentMonth ? "" : "text-primary"}`}
+              // The label carries the value, so name the button with both —
+              // a bare "Period" tells a screen reader nothing about the month.
+              aria-label={`${t("dateFilter.label")}: ${label}`}
+              className={`justify-center font-medium ${compact ? "min-w-0 px-2.5" : "min-w-36"} ${isCurrentMonth ? "" : "text-primary"}`}
             />
           }
         >
@@ -123,6 +158,14 @@ export function DateRangeFilter({
           {label}
         </PopoverTrigger>
         <PopoverContent align="center" className="w-auto gap-1.5 p-2">
+          {/* The month stepper the compact trigger gave up. */}
+          {compact ? (
+            <div className="flex items-center justify-between gap-1 border-b border-border pb-1.5">
+              {prevMonth}
+              <span className="text-sm font-medium">{label}</span>
+              {nextMonth}
+            </div>
+          ) : null}
           <div className="flex items-center gap-1">
             {presets.map((preset) => (
               <Button
@@ -161,14 +204,7 @@ export function DateRangeFilter({
           </div>
         </PopoverContent>
       </Popover>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={t("monthSwitcher.next")}
-        onClick={() => step(1)}
-      >
-        <ChevronRightIcon />
-      </Button>
+      {compact ? null : nextMonth}
     </div>
   );
 }

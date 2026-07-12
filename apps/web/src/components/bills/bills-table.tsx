@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@balance-point/ui/components/dropdown-menu";
 import { Input } from "@balance-point/ui/components/input";
+import { Label } from "@balance-point/ui/components/label";
 import {
   Pagination,
   PaginationContent,
@@ -38,6 +39,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@balance-point/ui/components/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@balance-point/ui/components/sheet";
 import { Skeleton } from "@balance-point/ui/components/skeleton";
 import { Spinner } from "@balance-point/ui/components/spinner";
 import {
@@ -62,11 +71,14 @@ import {
   type PaginationState,
   type RowData,
   type SortingState,
+  type Table as TableInstance,
   useReactTable,
 } from "@tanstack/react-table";
 import {
   ArrowDownIcon,
+  ArrowUpDownIcon,
   ArrowUpIcon,
+  CheckSquareIcon,
   ChevronsUpDownIcon,
   CreditCardIcon,
   FilterIcon,
@@ -75,12 +87,19 @@ import {
   SearchXIcon,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
+import { BillCard, BillCardSkeleton } from "@/components/bills/bill-card";
+import {
+  BillStatusBadge,
+  STATUS_BADGE,
+  STATUS_OPTIONS,
+} from "@/components/bills/bill-status-badge";
 import { PayBillButton } from "@/components/bills/pay-bill-button";
 import { CurrencyChip } from "@/components/currency-chip";
+import { useIsMobile } from "@/hooks/use-media-query";
 import { type MessageKey, useFormat, useT } from "@/i18n";
-import type { BillRow, CategoryRow } from "@/lib/api-types";
+import type { AccountRow, BillRow, CategoryRow } from "@/lib/api-types";
 import { type BillStatus, billStatus, formatMoney } from "@/lib/format";
 
 declare module "@tanstack/react-table" {
@@ -128,27 +147,6 @@ const STATUS_RANK: Record<BillStatus, number> = {
   paid: 4,
   "wont-pay": 5,
 };
-
-const STATUS_BADGE: Record<BillStatus, { labelKey: MessageKey; className: string }> = {
-  paid: { labelKey: "status.paid", className: "bg-success/15 text-success" },
-  overdue: { labelKey: "status.overdue", className: "bg-destructive/15 text-destructive" },
-  "due-soon": { labelKey: "status.dueSoon", className: "bg-warning/15 text-warning" },
-  pending: { labelKey: "status.pending", className: "bg-muted text-muted-foreground" },
-  "on-card": { labelKey: "status.onCard", className: "bg-primary/10 text-primary/80" },
-  "wont-pay": {
-    labelKey: "status.wontPay",
-    className: "bg-muted text-muted-foreground/80 line-through",
-  },
-};
-
-const STATUS_OPTIONS: BillStatus[] = [
-  "overdue",
-  "due-soon",
-  "pending",
-  "on-card",
-  "paid",
-  "wont-pay",
-];
 
 /** Accent/case-insensitive haystack match (São Paulo ⇢ "sao"). */
 const normalize = (value: string) =>
@@ -646,12 +644,9 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
         cell: ({ row, table }) => {
           const meta = tableMeta(table);
           const bill = row.original;
-          const badge = STATUS_BADGE[billStatus(bill)];
           return (
             <div className="flex items-center justify-end gap-1.5">
-              <Badge className={`border-transparent text-[10px] ${badge.className}`}>
-                {t(badge.labelKey)}
-              </Badge>
+              <BillStatusBadge bill={bill} />
               {isSelectable(bill) ? (
                 <PayBillButton bill={bill} onPaid={() => meta.onPaid(bill)} />
               ) : null}
@@ -714,7 +709,11 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
   );
 }
 
-const PAGE_SIZES = [10, 25, 50, 100];
+const PAGE_SIZES = [5, 10, 25, 50, 100];
+
+/** A card is ~4× a table row, so a phone gets a much shorter page by default. */
+const MOBILE_PAGE_SIZE = 5;
+const DESKTOP_PAGE_SIZE = 25;
 
 /** 1-based page list with ellipsis gaps: 1 … 4 5 6 … 12. */
 function pageNumbers(current: number, count: number): (number | "ellipsis")[] {
@@ -730,9 +729,269 @@ function pageNumbers(current: number, count: number): (number | "ellipsis")[] {
   return out;
 }
 
+/** Shared by both views — the table renders it inside a full-width cell. */
+function NoMatch({
+  searching,
+  onClearFilters,
+}: {
+  searching: boolean;
+  onClearFilters: () => void;
+}) {
+  const t = useT();
+  if (searching) {
+    return (
+      <div className="flex items-center justify-center gap-2 px-4 py-12 text-xs text-muted-foreground">
+        <Spinner className="size-3.5" /> {t("bills.searchingAll")}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+      <SearchXIcon className="size-5 text-muted-foreground" />
+      <p className="text-xs text-muted-foreground">{t("bills.noMatchTitle")}</p>
+      <Button variant="outline" size="xs" onClick={onClearFilters}>
+        {t("bills.clearFilters")}
+      </Button>
+    </div>
+  );
+}
+
+/** Sort options for the card view, phrased with an explicit direction. */
+const SORT_OPTIONS = [
+  { value: "dueDate:asc", labelKey: "bills.sortDueAsc" },
+  { value: "dueDate:desc", labelKey: "bills.sortDueDesc" },
+  { value: "amount:desc", labelKey: "bills.sortAmountDesc" },
+  { value: "amount:asc", labelKey: "bills.sortAmountAsc" },
+  { value: "name:asc", labelKey: "bills.sortName" },
+] as const satisfies readonly { value: string; labelKey: MessageKey }[];
+
+function MobileSort({
+  sorting,
+  onSortingChange,
+}: {
+  sorting: SortingState;
+  onSortingChange: (next: SortingState) => void;
+}) {
+  const t = useT();
+  const current = sorting[0];
+  const value = current ? `${current.id}:${current.desc ? "desc" : "asc"}` : "dueDate:asc";
+  const items = SORT_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey),
+  }));
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(v) => {
+        const [id, direction] = String(v ?? "dueDate:asc").split(":");
+        onSortingChange([{ id: id!, desc: direction === "desc" }]);
+      }}
+      items={items}
+    >
+      {/* min-w-0 so a long translated label shrinks the trigger instead of
+          pushing the filter and select buttons off the right edge. */}
+      <SelectTrigger size="sm" aria-label={t("bills.sortLabel")} className="min-w-0">
+        <ArrowUpDownIcon className="size-4 shrink-0 text-muted-foreground" />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Checkbox list bound to one column's filter value. */
+function FilterGroup({
+  label,
+  column,
+  options,
+}: {
+  label: string;
+  column: Column<BillRow, unknown> | undefined;
+  options: { value: string; label: string }[];
+}) {
+  const id = useId();
+  if (!column) return null;
+  const value = (column.getFilterValue() as string[] | undefined) ?? [];
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </p>
+      {options.map((option) => (
+        <div key={option.value} className="flex min-h-11 items-center gap-3">
+          <Checkbox
+            id={`${id}-${option.value}`}
+            checked={value.includes(option.value)}
+            onCheckedChange={(checked) => {
+              const next = checked
+                ? [...value, option.value]
+                : value.filter((v) => v !== option.value);
+              column.setFilterValue(next.length > 0 ? next : undefined);
+            }}
+          />
+          <Label htmlFor={`${id}-${option.value}`} className="flex-1 text-sm font-normal">
+            {option.label}
+          </Label>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** All column filters in one bottom sheet, with an applied-count badge. */
+function MobileFilters({
+  table,
+  categories,
+  accounts,
+  activeCount,
+  onClearFilters,
+}: {
+  table: TableInstance<BillRow>;
+  categories: CategoryRow[];
+  accounts: AccountRow[];
+  activeCount: number;
+  onClearFilters: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const amountColumn = table.getColumn("amount");
+  const amount = (amountColumn?.getFilterValue() as AmountBounds | undefined) ?? {};
+
+  function setAmount(next: AmountBounds) {
+    const cleaned: AmountBounds = {};
+    if (next.min !== undefined && Number.isFinite(next.min)) cleaned.min = next.min;
+    if (next.max !== undefined && Number.isFinite(next.max)) cleaned.max = next.max;
+    amountColumn?.setFilterValue(
+      cleaned.min === undefined && cleaned.max === undefined ? undefined : cleaned,
+    );
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant={activeCount > 0 ? "secondary" : "outline"} size="sm" />}>
+        <FilterIcon data-icon="inline-start" />
+        {t("bills.filtersLabel")}
+        {activeCount > 0 ? (
+          <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground tabular-nums">
+            {activeCount}
+          </span>
+        ) : null}
+      </SheetTrigger>
+      <SheetContent
+        side="bottom"
+        className="max-h-[85svh] rounded-t-3xl pb-[calc(var(--safe-bottom)+1rem)]"
+      >
+        <SheetHeader>
+          <SheetTitle>{t("bills.filtersLabel")}</SheetTitle>
+        </SheetHeader>
+
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
+          <FilterGroup
+            label={t("bills.filterStatus")}
+            column={table.getColumn("status")}
+            options={STATUS_OPTIONS.map((status) => ({
+              value: status,
+              label: t(STATUS_BADGE[status].labelKey),
+            }))}
+          />
+          {/* The bank picker lives here on a phone — it's a column filter like
+              any other, and the toolbar had no room left for it. */}
+          {accounts.length > 0 ? (
+            <FilterGroup
+              label={t("bills.colAccount")}
+              column={table.getColumn("account")}
+              options={accounts.map((account) => ({
+                value: account.id,
+                label: account.name,
+              }))}
+            />
+          ) : null}
+          <FilterGroup
+            label={t("bills.filterType")}
+            column={table.getColumn("type")}
+            options={[
+              { value: "statement", label: t("bills.typeStatement") },
+              { value: "recurring", label: t("bills.typeRecurring") },
+              { value: "oneoff", label: t("bills.typeOneOff") },
+            ]}
+          />
+          {categories.length > 0 ? (
+            <FilterGroup
+              label={t("bills.filterCategory")}
+              column={table.getColumn("category")}
+              options={[
+                ...categories.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                })),
+                { value: UNCATEGORIZED, label: t("common.uncategorized") },
+              ]}
+            />
+          ) : null}
+
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {t("bills.filterAmount")}
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                placeholder={t("bills.minAmount")}
+                aria-label={t("bills.minAmount")}
+                value={amount.min ?? ""}
+                onChange={(e) =>
+                  setAmount({
+                    ...amount,
+                    min: e.target.value === "" ? undefined : Number(e.target.value),
+                  })
+                }
+              />
+              <span className="text-muted-foreground">–</span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                placeholder={t("bills.maxAmount")}
+                aria-label={t("bills.maxAmount")}
+                value={amount.max ?? ""}
+                onChange={(e) =>
+                  setAmount({
+                    ...amount,
+                    max: e.target.value === "" ? undefined : Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+          </div>
+        </div>
+
+        <SheetFooter className="flex-row gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClearFilters}>
+            {t("bills.clearFilters")}
+          </Button>
+          <Button className="flex-1" onClick={() => setOpen(false)}>
+            {t("bills.applyFilters")}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function BillsTable({
   rows,
   categories,
+  accounts,
   globalFilter,
   onGlobalFilterChange,
   columnFilters,
@@ -744,6 +1003,8 @@ export function BillsTable({
 }: {
   rows: BillRow[];
   categories: CategoryRow[];
+  /** Feeds the bank group in the mobile filter sheet (desktop has its own select). */
+  accounts: AccountRow[];
   globalFilter: string;
   onGlobalFilterChange: (value: string) => void;
   columnFilters: ColumnFiltersState;
@@ -759,7 +1020,24 @@ export function BillsTable({
   const reduced = useReducedMotion();
   const columns = useBillColumns(categories);
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: DESKTOP_PAGE_SIZE,
+  });
+  // Mobile only. A permanent checkbox column would eat ~48px of a 390px screen
+  // and sit right next to the row's own tap target, so selection is a mode you
+  // opt into — with a visible button, never long-press-only (undiscoverable).
+  const [selectMode, setSelectMode] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Applied on mount and whenever the breakpoint is crossed, not on every
+  // render — so an explicit "rows per page" choice isn't stomped afterwards.
+  useEffect(() => {
+    const size = isMobile ? MOBILE_PAGE_SIZE : DESKTOP_PAGE_SIZE;
+    setPagination((prev) =>
+      prev.pageSize === size ? prev : { pageIndex: 0, pageSize: size },
+    );
+  }, [isMobile]);
 
   const table = useReactTable({
     data: rows,
@@ -804,10 +1082,83 @@ export function BillsTable({
   const firstRow = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
   const lastRow = Math.min(filteredCount, (pageIndex + 1) * pageSize);
 
+  const selectableRows = table
+    .getFilteredRowModel()
+    .rows.filter((row) => isSelectable(row.original));
+  const allSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((row) => meta.selected.has(row.original.id));
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
+      {/*
+       * Sort/filter/select live in the column headers on desktop. The card view
+       * has no headers, so below md they get explicit controls of their own.
+       *
+       * Selection mode *replaces* the bar rather than adding a fourth control:
+       * three labelled buttons don't fit across 358px, and swapping to a
+       * contextual bar is the established pattern for this anyway.
+       */}
+      <div className="flex items-center gap-2 md:hidden">
+        {selectMode ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selectableRows.length === 0}
+              onClick={() =>
+                meta.onSetSelected(
+                  allSelected
+                    ? new Set()
+                    : new Set(selectableRows.map((row) => row.original.id)),
+                )
+              }
+            >
+              <CheckSquareIcon data-icon="inline-start" />
+              {allSelected ? t("bills.clearSelection") : t("bills.selectAllShort")}
+            </Button>
+            <Button
+              size="sm"
+              className="ml-auto"
+              onClick={() => {
+                meta.onSetSelected(new Set());
+                setSelectMode(false);
+              }}
+            >
+              {t("bills.doneSelecting")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <MobileSort sorting={sorting} onSortingChange={setSorting} />
+            <MobileFilters
+              table={table}
+              categories={categories}
+              accounts={accounts}
+              activeCount={columnFilters.length}
+              onClearFilters={onClearFilters}
+            />
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="ml-auto"
+              aria-label={t("bills.startSelecting")}
+              title={t("bills.startSelecting")}
+              onClick={() => setSelectMode(true)}
+            >
+              <CheckSquareIcon />
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Desktop: the real table — a focusable, announced scroll region so the
+          columns that overflow on a narrow window stay keyboard-reachable. */}
       <div
-        className={`overflow-x-auto rounded-lg ring-1 ring-foreground/10 transition-opacity ${
+        role="region"
+        aria-label={t("bills.title")}
+        tabIndex={0}
+        className={`hidden overflow-x-auto rounded-lg ring-1 ring-foreground/10 transition-opacity focus-visible:ring-2 focus-visible:ring-ring md:block ${
           isFetching ? "opacity-60" : ""
         }`}
       >
@@ -829,19 +1180,7 @@ export function BillsTable({
             {filteredCount === 0 ? (
               <tr>
                 <td colSpan={columns.length}>
-                  {searchingFallback ? (
-                    <div className="flex items-center justify-center gap-2 px-4 py-12 text-xs text-muted-foreground">
-                      <Spinner className="size-3.5" /> {t("bills.searchingAll")}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-                      <SearchXIcon className="size-5 text-muted-foreground" />
-                      <p className="text-xs text-muted-foreground">{t("bills.noMatchTitle")}</p>
-                      <Button variant="outline" size="xs" onClick={onClearFilters}>
-                        {t("bills.clearFilters")}
-                      </Button>
-                    </div>
-                  )}
+                  <NoMatch searching={searchingFallback} onClearFilters={onClearFilters} />
                 </td>
               </tr>
             ) : (
@@ -866,6 +1205,36 @@ export function BillsTable({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile: the same rows, re-ranked into cards. */}
+      <div className={`transition-opacity md:hidden ${isFetching ? "opacity-60" : ""}`}>
+        {filteredCount === 0 ? (
+          <NoMatch searching={searchingFallback} onClearFilters={onClearFilters} />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {table.getRowModel().rows.map((row) => {
+              const bill = row.original;
+              return (
+                <BillCard
+                  key={row.id}
+                  bill={bill}
+                  displayCurrency={meta.displayCurrency}
+                  showYear={meta.showYear}
+                  selectMode={selectMode}
+                  selected={meta.selected.has(bill.id)}
+                  selectable={isSelectable(bill)}
+                  onToggle={() => meta.onToggleRow(bill.id)}
+                  onPaid={() => meta.onPaid(bill)}
+                  onUnpay={() => meta.onUnpay(bill)}
+                  onSetWontPay={(wontPay) => meta.onSetWontPay(bill, wontPay)}
+                  onEdit={() => meta.onEdit(bill)}
+                  onDelete={() => meta.onDelete(bill)}
+                />
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {filteredCount > 0 ? (
@@ -932,12 +1301,22 @@ export function BillsTable({
   );
 }
 
-/** Structured placeholder mirroring the table layout (doc 08 §8.6). */
+/** Structured placeholder — mirrors whichever of the two views is showing. */
 export function BillsTableSkeleton() {
   const nameWidths = ["w-36", "w-44", "w-28", "w-40", "w-32"];
   return (
-    <div className="flex flex-col gap-2">
-      <div className="overflow-hidden rounded-lg ring-1 ring-foreground/10">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 md:hidden">
+        <Skeleton className="h-10 w-32 rounded-md" />
+        <Skeleton className="h-10 w-24 rounded-md" />
+        <Skeleton className="ml-auto h-10 w-24 rounded-md" />
+      </div>
+
+      <div className="md:hidden">
+        <BillCardSkeleton />
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg ring-1 ring-foreground/10 md:block">
         <div className="flex h-10 items-center gap-4 border-b border-border bg-muted/30 px-3">
           <Skeleton className="size-4 rounded-md" />
           <Skeleton className="h-3 w-16" />
@@ -962,7 +1341,8 @@ export function BillsTableSkeleton() {
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between">
+
+      <div className="hidden items-center justify-between md:flex">
         <Skeleton className="h-3.5 w-28" />
         <Skeleton className="h-7 w-64" />
       </div>

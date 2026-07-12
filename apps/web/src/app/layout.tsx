@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies, headers } from "next/headers";
 
@@ -22,6 +22,26 @@ export const metadata: Metadata = {
   description:
     "Personal finance — accounts, bills, subscriptions and projections",
   appleWebApp: { title: "BalancePoint" },
+};
+
+/**
+ * `viewportFit: "cover"` lets the page paint under the notch and the home
+ * indicator — and, crucially, is what makes `env(safe-area-inset-*)` report
+ * real values instead of 0. The floating nav and page padding lean on those
+ * insets (see `--safe-*` in globals.css).
+ *
+ * `maximumScale` is deliberately left alone: pinch-zoom must stay available
+ * (WCAG 1.4.4). iOS auto-zoom on focus is prevented the correct way instead —
+ * every text field is ≥16px on mobile.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fdfcfb" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1b19" },
+  ],
 };
 
 export default async function RootLayout({

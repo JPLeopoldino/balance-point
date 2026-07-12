@@ -6,6 +6,42 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Device safe areas (notch, home indicator, rounded corners). These only
+ * resolve to non-zero once the document opts in with `viewport-fit=cover`
+ * — see the `viewport` export in apps/web/src/app/layout.tsx. Declared on
+ * `:root` so both themes inherit them.
+ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /*
+   * Inside a Safari tab, `safe-area-inset-bottom` reports 0 while the browser
+   * toolbar is expanded and jumps to ~34px once it collapses on scroll. The
+   * floating bar *should* track that (it stays glued above the toolbar), but
+   * the space content reserves for it must NOT — or every scroll would reflow
+   * the page. So: live value to position the bar, this stable maximum to
+   * reserve room. `safe-area-max-inset-*` is Chromium-only; degrade to live.
+   */
+  --safe-bottom-max: env(
+    safe-area-max-inset-bottom,
+    env(safe-area-inset-bottom, 0px)
+  );
+
+  /* Floating mobile nav pill: its own height plus the gap to the screen edge. */
+  --nav-height: 4rem;
+  --nav-gap: 0.75rem;
+
+  /* Total vertical space the floating bar occupies. */
+  --nav-occupies: calc(
+    var(--nav-height) + var(--nav-gap) +
+      max(var(--nav-gap), var(--safe-bottom-max))
+  );
+}
+
 /* LIGHT — supported secondary theme (doc 08 §8.2) */
 :root {
   --background: oklch(0.99 0.004 95);
@@ -86,6 +122,18 @@
 @theme inline {
   --font-sans: var(--font-geist-sans), "Inter Variable", sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
+
+  /* Safe-area spacing utilities: pt-safe-t, pb-safe-b, pl-safe-l, pr-safe-r. */
+  --spacing-safe-t: var(--safe-top);
+  --spacing-safe-r: var(--safe-right);
+  --spacing-safe-b: var(--safe-bottom);
+  --spacing-safe-l: var(--safe-left);
+
+  /*
+   * `pb-nav` — clearance under scrollable content so the floating mobile nav
+   * never covers the last row.
+   */
+  --spacing-nav: calc(var(--nav-occupies) + 0.5rem);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -135,8 +183,61 @@
   }
   body {
     @apply font-sans bg-background text-foreground;
+    /* A stray wide child must never let the whole page pan sideways. */
+    overflow-x: clip;
   }
   html {
     @apply font-sans;
+    /* Grey flash on every tap reads as jank on a touch device. */
+    -webkit-tap-highlight-color: transparent;
+    /* Safari otherwise inflates type on rotate. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+
+    /*
+     * Padding alone keeps the *last row* clear of the floating bar, but not
+     * the *focused* one: tabbing through a form scrolls the field to the very
+     * bottom of the viewport, i.e. behind the bar (WCAG 2.2 SC 2.4.11, failure
+     * F110). scroll-padding is what moves those scroll landings up.
+     */
+    scroll-padding-bottom: calc(var(--nav-occupies) + 1rem);
+  }
+  @media (width >= 48rem) {
+    html {
+      scroll-padding-bottom: 1rem;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+   * Frosted surface for the floating nav (doc 08 §8.8). Set `--glass-bg` to
+   * the opaque colour it should fall back to.
+   *
+   * Kept to the two small floating elements on purpose: `backdrop-filter` on a
+   * `position: fixed` node repaints its region every scroll frame in iOS
+   * Safari, so a blurred *pill* is cheap where a blurred full-width bar janks.
+   */
+  .glass-surface {
+    --glass-bg: var(--popover);
+    background-color: color-mix(in oklch, var(--glass-bg) 82%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%);
+  }
+
+  @supports not
+    ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-surface {
+      background-color: var(--glass-bg);
+    }
+  }
+
+  /* The blur is decoration — drop it when the OS asks for less transparency. */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-surface {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background-color: var(--glass-bg);
+    }
   }
 }

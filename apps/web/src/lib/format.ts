@@ -58,11 +58,18 @@ export function addMonths(month: string, n: number): string {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
 }
 
-export type BillStatus = "paid" | "wont-pay" | "overdue" | "due-soon" | "pending";
+export type BillStatus = "paid" | "wont-pay" | "overdue" | "due-soon" | "pending" | "on-card";
 
 /** Overdue/due-soon rules from doc 04 §4.13. */
-export function billStatus(bill: { paid: boolean; wontPay: boolean; dueDate: string }): BillStatus {
+export function billStatus(bill: {
+  paid: boolean;
+  wontPay: boolean;
+  dueDate: string;
+  creditCardId?: string | null;
+}): BillStatus {
   if (bill.paid) return "paid";
+  // Card charges are never payable/overdue — they settle via the fatura.
+  if (bill.creditCardId) return "on-card";
   if (bill.wontPay) return "wont-pay";
   const today = todayISO();
   if (bill.dueDate < today) return "overdue";

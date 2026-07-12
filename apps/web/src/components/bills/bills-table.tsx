@@ -114,7 +114,7 @@ export function isSelectable(bill: BillRow): boolean {
   return !bill.paid && !bill.wontPay && !bill.creditCardId;
 }
 
-export const UNPAID_STATUSES: BillStatus[] = ["overdue", "due-soon", "pending"];
+export const UNPAID_STATUSES: BillStatus[] = ["overdue", "due-soon", "pending", "on-card"];
 
 /** Default view: unpaid bills only, nearest due date / most overdue on top. */
 export const DEFAULT_SORTING: SortingState = [{ id: "dueDate", desc: false }];
@@ -124,8 +124,9 @@ const STATUS_RANK: Record<BillStatus, number> = {
   overdue: 0,
   "due-soon": 1,
   pending: 2,
-  paid: 3,
-  "wont-pay": 4,
+  "on-card": 3,
+  paid: 4,
+  "wont-pay": 5,
 };
 
 const STATUS_BADGE: Record<BillStatus, { labelKey: MessageKey; className: string }> = {
@@ -133,13 +134,21 @@ const STATUS_BADGE: Record<BillStatus, { labelKey: MessageKey; className: string
   overdue: { labelKey: "status.overdue", className: "bg-destructive/15 text-destructive" },
   "due-soon": { labelKey: "status.dueSoon", className: "bg-warning/15 text-warning" },
   pending: { labelKey: "status.pending", className: "bg-muted text-muted-foreground" },
+  "on-card": { labelKey: "status.onCard", className: "bg-primary/10 text-primary/80" },
   "wont-pay": {
     labelKey: "status.wontPay",
     className: "bg-muted text-muted-foreground/80 line-through",
   },
 };
 
-const STATUS_OPTIONS: BillStatus[] = ["overdue", "due-soon", "pending", "paid", "wont-pay"];
+const STATUS_OPTIONS: BillStatus[] = [
+  "overdue",
+  "due-soon",
+  "pending",
+  "on-card",
+  "paid",
+  "wont-pay",
+];
 
 /** Accent/case-insensitive haystack match (São Paulo ⇢ "sao"). */
 const normalize = (value: string) =>
@@ -151,9 +160,13 @@ const normalize = (value: string) =>
 export function matchesBillSearch(bill: BillRow, needle: string): boolean {
   const normalized = normalize(needle.trim());
   if (!normalized) return true;
-  return [bill.name, bill.category?.name, bill.sourceAccount?.name, bill.creditCard?.name].some(
-    (hay) => hay != null && normalize(hay).includes(normalized),
-  );
+  return [
+    bill.name,
+    bill.category?.name,
+    bill.sourceAccount?.name,
+    bill.creditCard?.name,
+    bill.statementCard?.name,
+  ].some((hay) => hay != null && normalize(hay).includes(normalized));
 }
 
 interface AmountBounds {
@@ -183,7 +196,13 @@ export function filterBills(
         case "type":
           if (
             list?.length &&
-            !list.includes(bill.recurringExpenseId ? "recurring" : "oneoff")
+            !list.includes(
+              bill.statementCardId
+                ? "statement"
+                : bill.recurringExpenseId
+                  ? "recurring"
+                  : "oneoff",
+            )
           )
             return false;
           break;
@@ -465,7 +484,8 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
       },
       {
         id: "type",
-        accessorFn: (bill) => (bill.recurringExpenseId ? "recurring" : "oneoff"),
+        accessorFn: (bill) =>
+          bill.statementCardId ? "statement" : bill.recurringExpenseId ? "recurring" : "oneoff",
         filterFn: includedIn,
         meta: { headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
         header: ({ column }) => (
@@ -474,6 +494,7 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
               column={column}
               label={t("bills.filterAria", { column: t("bills.colType") })}
               options={[
+                { value: "statement", label: t("bills.typeStatement") },
                 { value: "recurring", label: t("bills.typeRecurring") },
                 { value: "oneoff", label: t("bills.typeOneOff") },
               ]}
@@ -481,7 +502,11 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
           </SortHeader>
         ),
         cell: ({ row }) =>
-          row.original.recurringExpenseId ? (
+          row.original.statementCardId ? (
+            <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground">
+              <CreditCardIcon className="size-3" /> {t("bills.typeStatement")}
+            </Badge>
+          ) : row.original.recurringExpenseId ? (
             <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground">
               <RefreshCcwIcon className="size-3" /> {t("bills.typeRecurring")}
             </Badge>
@@ -660,7 +685,7 @@ function useBillColumns(categories: CategoryRow[]): ColumnDef<BillRow>[] {
                 <DropdownMenuItem onClick={() => meta.onEdit(bill)}>
                   {t("common.edit")}
                 </DropdownMenuItem>
-                {bill.paid ? (
+                {bill.paid && !isCardCharge ? (
                   <DropdownMenuItem onClick={() => meta.onUnpay(bill)}>
                     {t("bills.markUnpaid")}
                   </DropdownMenuItem>

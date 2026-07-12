@@ -203,20 +203,26 @@ describe("credit cards (doc 04 §4.3)", () => {
     expect(monthlyEquivalent({ frequency: "manual", intervalMonths: 1, defaultAmount: 9999 })).toBe(0);
   });
 
-  it("used = committed monthly + open charges; available = limit − used (stage 4b golden)", () => {
+  it("used = open charges only; committed monthly stays a display metric", () => {
+    // Card templates materialize monthly charge bills now, so the open charges
+    // ARE the used credit — counting committedMonthly again would double it.
     const usage = cardUsage(
       12_000_00,
       [{ frequency: "monthly", intervalMonths: 1, defaultAmount: 8_800_00, currency: "BRL" }],
-      [],
+      [{ amount: 8_800_00, currency: "BRL" }],
       identity,
     );
+    expect(usage.committedMonthly).toBe(8_800_00);
     expect(usage.used).toBe(8_800_00);
     expect(usage.available).toBe(3_200_00);
 
     const withOpen = cardUsage(
       12_000_00,
       [{ frequency: "monthly", intervalMonths: 1, defaultAmount: 8_800_00, currency: "BRL" }],
-      [{ amount: 500_00, currency: "BRL" }],
+      [
+        { amount: 8_800_00, currency: "BRL" },
+        { amount: 500_00, currency: "BRL" },
+      ],
       identity,
     );
     expect(withOpen.available).toBe(2_700_00);

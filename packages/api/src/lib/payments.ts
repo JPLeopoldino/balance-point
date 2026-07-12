@@ -15,6 +15,7 @@ import { logActivity } from "./activity";
 import type { Tx } from "./db-types";
 import type { Locale } from "./locale";
 import { messagesFor } from "./messages";
+import { chargesTotal, settleStatementChargesTx, unsettleStatementChargesTx } from "./statements";
 
 async function loadOwnedBill(tx: Tx, userId: string, billId: string): Promise<Bill> {
   const row = await tx.query.bill.findFirst({
@@ -46,6 +47,11 @@ export interface PayResult {
  * deducts the (converted) amount from the source account's checking balance,
  * stores the FX rate used, and appends an activity row. Paying an already-paid
  * bill is a no-op; negative balances are allowed with a soft warning.
+ *
+ * New rules: `withoutAccount` (or simply no resolvable account) marks the bill
+ * paid with no bank debit; `amount` applies a payment-time discount by
+ * replacing the bill's value; paying a statement bill settles the card's
+ * covered charges, freeing its limit.
  */
 export async function payBillTx(
   tx: Tx,
@@ -53,6 +59,10 @@ export async function payBillTx(
     userId: string;
     billId: string;
     fromAccountId?: string | null;
+    /** Pay with no bank debit even if the bill has a source account. */
+    withoutAccount?: boolean;
+    /** Discounted value — replaces the bill's amount at payment time. */
+    amount?: Money | null;
     rates: FxRates;
     locale?: Locale;
   },
@@ -70,17 +80,55 @@ export async function payBillTx(
       : null;
     return { bill: row, account, debit: 0, skipped: true };
   }
-  if (row.amount <= 0) {
+
+  const paidAt = new Date();
+
+  // Statement bills settle their covered charges; without an explicit
+  // (discounted) value the fresh charge total wins over a stale amount.
+  let amount = args.amount ?? row.amount;
+  if (row.statementCardId) {
+    const covered = await settleStatementChargesTx(tx, userId, row, paidAt);
+    if (args.amount == null && covered.length > 0) {
+      const total = chargesTotal(covered, rates, row.currency);
+      if (total > 0) amount = total;
+    }
+  }
+  if (amount <= 0) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Bill amount must be greater than zero" });
   }
 
-  const accountId = args.fromAccountId ?? row.sourceAccountId;
+  const accountId = args.withoutAccount ? null : (args.fromAccountId ?? row.sourceAccountId);
+
+  // No bank linked to the payment — just mark it paid (doc 04 §4.5 rework).
   if (!accountId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: msg.chooseAccount });
+    const [updatedBill] = await tx
+      .update(bill)
+      .set({
+        amount,
+        paid: true,
+        wontPay: false,
+        paidAt,
+        paidFromAccountId: null,
+        paidWithoutAccount: true,
+        paidFxRate: null,
+      })
+      .where(and(eq(bill.id, row.id), eq(bill.userId, userId)))
+      .returning();
+    await logActivity(tx, {
+      userId,
+      type: "bill_paid",
+      bankAccountId: null,
+      billId: row.id,
+      amount: -amount,
+      balanceAfter: null,
+      meta: { billCurrency: row.currency, withoutAccount: true },
+    });
+    return { bill: updatedBill!, account: null, debit: 0, skipped: false };
   }
+
   const account = await loadOwnedAccount(tx, userId, accountId);
 
-  let debit = row.amount;
+  let debit = amount;
   let fxRate: number | null = null;
   if (row.currency !== account.currency) {
     try {
@@ -94,15 +142,22 @@ export async function payBillTx(
       }
       throw error;
     }
-    debit = convertWithRate(row.amount, fxRate);
+    debit = convertWithRate(amount, fxRate);
   }
 
   const newBalance = account.checkingBalance - debit;
-  const paidAt = new Date();
 
   const [updatedBill] = await tx
     .update(bill)
-    .set({ paid: true, wontPay: false, paidAt, paidFromAccountId: account.id, paidFxRate: fxRate })
+    .set({
+      amount,
+      paid: true,
+      wontPay: false,
+      paidAt,
+      paidFromAccountId: account.id,
+      paidWithoutAccount: false,
+      paidFxRate: fxRate,
+    })
     .where(and(eq(bill.id, row.id), eq(bill.userId, userId)))
     .returning();
   const [updatedAccount] = await tx
@@ -140,6 +195,8 @@ export interface UnpayResult {
 /**
  * Reverse a payment (doc 04 §4.6) using the exact rate it was paid at. If the
  * original account is gone, the refund lands on the bill's source account.
+ * Payments made without a bank reverse with no credit; unpaying a statement
+ * bill reopens the charges it had settled.
  */
 export async function unpayBillTx(
   tx: Tx,
@@ -149,6 +206,35 @@ export async function unpayBillTx(
   const msg = messagesFor(args.locale ?? "en");
   const row = await loadOwnedBill(tx, userId, args.billId);
   if (!row.paid) return { bill: row, account: null, credit: 0, skipped: true };
+
+  if (row.statementCardId) {
+    await unsettleStatementChargesTx(tx, userId, row.id);
+  }
+
+  if (row.paidWithoutAccount) {
+    const [updatedBill] = await tx
+      .update(bill)
+      .set({
+        paid: false,
+        paidAt: null,
+        paidFromAccountId: null,
+        paidWithoutAccount: false,
+        paidFxRate: null,
+        settledByBillId: null,
+      })
+      .where(and(eq(bill.id, row.id), eq(bill.userId, userId)))
+      .returning();
+    await logActivity(tx, {
+      userId,
+      type: "bill_unpaid",
+      bankAccountId: null,
+      billId: row.id,
+      amount: row.amount,
+      balanceAfter: null,
+      meta: { billCurrency: row.currency, withoutAccount: true },
+    });
+    return { bill: updatedBill!, account: null, credit: 0, skipped: false };
+  }
 
   const credit = row.paidFxRate ? convertWithRate(row.amount, row.paidFxRate) : row.amount;
 
@@ -169,7 +255,14 @@ export async function unpayBillTx(
 
   const [updatedBill] = await tx
     .update(bill)
-    .set({ paid: false, paidAt: null, paidFromAccountId: null, paidFxRate: null })
+    .set({
+      paid: false,
+      paidAt: null,
+      paidFromAccountId: null,
+      paidWithoutAccount: false,
+      paidFxRate: null,
+      settledByBillId: null,
+    })
     .where(and(eq(bill.id, row.id), eq(bill.userId, userId)))
     .returning();
   const [updatedAccount] = await tx

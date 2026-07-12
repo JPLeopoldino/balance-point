@@ -36,7 +36,9 @@ export interface CardUsage {
 
 /**
  * Derived credit for one card, everything in the card's own currency
- * (doc 04 §4.3). `conv` converts a charge into the card's currency.
+ * (doc 04 §4.3 rework). Card templates now materialize monthly charge bills,
+ * so `used` counts only the open (unsettled) charges — paying the fatura
+ * frees the limit. `committedMonthly` stays as a display metric.
  */
 export function cardUsage(
   creditLimit: Money,
@@ -48,6 +50,6 @@ export function cardUsage(
     ...activeRecurring.map((r) => conv(monthlyEquivalent(r), r.currency)),
   );
   const openCharges = sumMoney(...openBills.map((b) => conv(b.amount, b.currency)));
-  const used = committedMonthly + openCharges;
+  const used = openCharges;
   return { committedMonthly, openCharges, used, available: creditLimit - used };
 }

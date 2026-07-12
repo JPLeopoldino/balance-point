@@ -49,14 +49,14 @@ export function ColorPicker({
   const inheritText = inheritLabel ?? t("colorPicker.inherit");
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2 md:gap-1.5">
       {allowInherit ? (
         <button
           type="button"
           title={inheritText}
           aria-label={inheritText}
           aria-pressed={value === null}
-          className={`flex size-6 items-center justify-center rounded-full border-2 border-dashed text-[9px] text-muted-foreground ${
+          className={`flex size-8 items-center justify-center rounded-full border-2 border-dashed text-[10px] text-muted-foreground md:size-6 md:text-[9px] ${
             value === null ? "border-foreground" : "border-border"
           }`}
           onClick={() => onChange(null)}
@@ -70,7 +70,7 @@ export function ColorPicker({
           type="button"
           aria-label={t("colorPicker.colorAria", { color })}
           aria-pressed={value === color}
-          className={`size-6 rounded-full border-2 ${
+          className={`size-8 rounded-full border-2 md:size-6 ${
             value === color ? "border-foreground" : "border-transparent"
           }`}
           style={{ backgroundColor: color }}
@@ -80,12 +80,12 @@ export function ColorPicker({
       <Label
         htmlFor={customId}
         title={t("colorPicker.custom")}
-        className={`relative flex size-6 cursor-pointer items-center justify-center rounded-full border-2 ${
+        className={`relative flex size-8 cursor-pointer items-center justify-center rounded-full border-2 md:size-6 ${
           isCustom ? "border-foreground" : "border-border"
         }`}
         style={isCustom ? { backgroundColor: customValue } : undefined}
       >
-        {!isCustom ? <PipetteIcon className="size-3 text-muted-foreground" /> : null}
+        {!isCustom ? <PipetteIcon className="size-4 text-muted-foreground md:size-3" /> : null}
         <input
           id={customId}
           type="color"

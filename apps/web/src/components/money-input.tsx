@@ -49,7 +49,7 @@ export function MoneyInput({
 
   return (
     <div className={`relative ${className ?? ""}`}>
-      <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-muted-foreground">
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted-foreground md:left-2.5 md:text-xs">
         {CURRENCIES[currency].symbol}
       </span>
       <Input
@@ -59,7 +59,7 @@ export function MoneyInput({
         disabled={disabled}
         placeholder={placeholder ?? `0${separator}00`}
         value={text}
-        className="pl-9 tabular-nums"
+        className="pl-10 tabular-nums md:pl-9"
         onChange={(e) => {
           const next = e.target.value;
           setText(next);

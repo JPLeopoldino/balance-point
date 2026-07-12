@@ -13,7 +13,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="input-group"
       role="group"
       className={cn(
-        "group/input-group relative flex h-8 w-full min-w-0 items-center rounded-md border border-input bg-background shadow-xs transition-[color,box-shadow] outline-none has-[>textarea]:h-auto dark:bg-input/30",
+        "group/input-group relative flex h-11 w-full min-w-0 items-center rounded-md border border-input bg-background shadow-xs transition-[color,box-shadow] outline-none has-[>textarea]:h-auto md:h-8 dark:bg-input/30",
         "has-[>[data-align=inline-start]]:[&>input]:pl-2 has-[>[data-align=inline-end]]:[&>input]:pr-2",
         "has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-start]]:[&>input]:pb-3",
         "has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3",
@@ -69,19 +69,22 @@ function InputGroupAddon({
   );
 }
 
-const inputGroupButtonVariants = cva("flex items-center gap-2 text-xs shadow-none", {
-  variants: {
-    size: {
-      xs: "h-6 gap-1 rounded-md px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
-      sm: "h-7 gap-1 rounded-md px-2",
-      "icon-xs": "size-6 rounded-md p-0 has-[>svg]:p-0",
-      "icon-sm": "size-7 rounded-md p-0 has-[>svg]:p-0",
+const inputGroupButtonVariants = cva(
+  "flex items-center gap-2 text-sm shadow-none md:text-xs",
+  {
+    variants: {
+      size: {
+        xs: "h-8 gap-1 rounded-md px-2 [&>svg:not([class*='size-'])]:size-4 md:h-6 md:px-1.5 md:[&>svg:not([class*='size-'])]:size-3.5",
+        sm: "h-9 gap-1 rounded-md px-2.5 md:h-7 md:px-2",
+        "icon-xs": "size-9 rounded-md p-0 has-[>svg]:p-0 md:size-6",
+        "icon-sm": "size-10 rounded-md p-0 has-[>svg]:p-0 md:size-7",
+      },
+    },
+    defaultVariants: {
+      size: "xs",
     },
   },
-  defaultVariants: {
-    size: "xs",
-  },
-});
+);
 
 function InputGroupButton({
   className,

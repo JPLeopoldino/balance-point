@@ -15,6 +15,7 @@ export const serverMessages = {
     chooseAccount: "Choose an account to pay from",
     cardChargeNotPayable: "This is a card charge — it is settled through the card's statement bill.",
     unpayBeforeEditing: "This bill is already paid — mark it unpaid before changing its amount.",
+    unpayBeforeWontPay: "This bill is already paid — mark it unpaid before flagging it as won't pay.",
     refundAccountGone:
       "The account this bill was paid from no longer exists — reassign a source account first.",
     categoryExists: "A category with this name already exists",
@@ -29,6 +30,8 @@ export const serverMessages = {
     chooseAccount: "Escolha uma conta para pagar",
     cardChargeNotPayable: "Isto é um gasto no cartão — ele é quitado pela fatura do cartão.",
     unpayBeforeEditing: "Esta conta já foi paga — desfaça o pagamento antes de alterar o valor.",
+    unpayBeforeWontPay:
+      "Esta conta já foi paga — desfaça o pagamento antes de marcá-la como “não vou pagar”.",
     refundAccountGone:
       "A conta de onde este pagamento saiu não existe mais — defina outra conta de origem antes.",
     categoryExists: "Já existe uma categoria com esse nome",

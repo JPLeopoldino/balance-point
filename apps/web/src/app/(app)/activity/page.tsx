@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "@balance-point/ui/components/skeleton";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
+  BanIcon,
   BanknoteIcon,
   CheckCircle2Icon,
   HistoryIcon,
@@ -43,6 +44,12 @@ const TYPE_META: Record<
 > = {
   bill_paid: { labelKey: "activity.billPaid", icon: CheckCircle2Icon, tone: "text-success" },
   bill_unpaid: { labelKey: "activity.paymentReversed", icon: UndoIcon, tone: "text-warning" },
+  bill_wont_pay: { labelKey: "activity.billWontPay", icon: BanIcon, tone: "text-muted-foreground" },
+  bill_wont_pay_undone: {
+    labelKey: "activity.billWontPayUndone",
+    icon: UndoIcon,
+    tone: "text-muted-foreground",
+  },
   bill_deleted: { labelKey: "activity.billDeleted", icon: Trash2Icon, tone: "text-destructive" },
   balance_edited: { labelKey: "activity.balanceEdited", icon: PencilIcon, tone: "text-muted-foreground" },
   yield_accrued: { labelKey: "activity.yieldAccrued", icon: TrendingUpIcon, tone: "text-success" },

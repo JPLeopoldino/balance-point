@@ -9,6 +9,8 @@ import { idSchema } from "../lib/validation";
 const activityTypes = z.enum([
   "bill_paid",
   "bill_unpaid",
+  "bill_wont_pay",
+  "bill_wont_pay_undone",
   "bill_deleted",
   "balance_edited",
   "yield_accrued",

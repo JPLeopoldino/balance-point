@@ -28,6 +28,8 @@ export const bill = pgTable(
     dueDate: date("due_date", { mode: "string" }).notNull(), // 'YYYY-MM-DD'
     month: text("month").notNull(), // 'YYYY-MM', derived from dueDate on write
     paid: boolean("paid").notNull().default(false),
+    // Flagged "won't pay": stays on record but leaves every payable roll-up.
+    wontPay: boolean("wont_pay").notNull().default(false),
     paidAt: timestamp("paid_at"),
     paidFromAccountId: text("paid_from_account_id").references(() => bankAccount.id, {
       onDelete: "set null",

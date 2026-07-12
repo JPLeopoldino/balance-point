@@ -62,6 +62,7 @@ export const billsRouter = router({
         .object({
           month: monthSchema.optional(),
           paid: z.boolean().optional(),
+          wontPay: z.boolean().optional(),
           categoryId: idSchema.optional(),
           accountId: idSchema.optional(),
           creditCardId: idSchema.optional(),
@@ -82,6 +83,7 @@ export const billsRouter = router({
           input?.from ? gte(bill.dueDate, input.from) : undefined,
           input?.to ? lte(bill.dueDate, input.to) : undefined,
           input?.paid !== undefined ? eq(bill.paid, input.paid) : undefined,
+          input?.wontPay !== undefined ? eq(bill.wontPay, input.wontPay) : undefined,
           input?.categoryId ? eq(bill.categoryId, input.categoryId) : undefined,
           input?.accountId ? eq(bill.sourceAccountId, input.accountId) : undefined,
           input?.creditCardId ? eq(bill.creditCardId, input.creditCardId) : undefined,
@@ -303,11 +305,53 @@ export const billsRouter = router({
       });
     }),
 
+  /** Flag a bill "won't pay" (or undo): it stays on record but leaves the payable roll-ups. */
+  setWontPay: protectedProcedure
+    .input(z.object({ id: idSchema, wontPay: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const settings = await ensureUserDefaults(db, userId, ctx.preferredLocale);
+      const msg = messagesFor(normalizeLocale(settings.locale));
+      return db.transaction(async (tx) => {
+        const existing = await tx.query.bill.findFirst({
+          where: and(eq(bill.id, input.id), eq(bill.userId, userId)),
+        });
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Bill not found" });
+        if (existing.wontPay === input.wontPay) return existing;
+        if (input.wontPay && existing.paid) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg.unpayBeforeWontPay });
+        }
+        if (input.wontPay && existing.creditCardId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg.cardChargeNotPayable });
+        }
+        const [updated] = await tx
+          .update(bill)
+          .set({ wontPay: input.wontPay })
+          .where(and(eq(bill.id, existing.id), eq(bill.userId, userId)))
+          .returning();
+        await logActivity(tx, {
+          userId,
+          type: input.wontPay ? "bill_wont_pay" : "bill_wont_pay_undone",
+          billId: existing.id,
+          bankAccountId: existing.sourceAccountId,
+          amount: null,
+          balanceAfter: null,
+          meta: { name: existing.name, amount: existing.amount, currency: existing.currency },
+        });
+        return updated!;
+      });
+    }),
+
   /** Next unpaid bill with value > 0 (doc 04 §4.13). Card charges are not payables. */
   next: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
     const rows = await db.query.bill.findMany({
-      where: and(eq(bill.userId, userId), eq(bill.paid, false), gt(bill.amount, 0)),
+      where: and(
+        eq(bill.userId, userId),
+        eq(bill.paid, false),
+        eq(bill.wontPay, false),
+        gt(bill.amount, 0),
+      ),
       orderBy: [asc(bill.dueDate), asc(bill.createdAt)],
       limit: 10,
     });
@@ -335,7 +379,14 @@ export const billsRouter = router({
           gte(bill.month, `${input.year}-01`),
           lte(bill.month, `${input.year}-12`),
         ),
-        columns: { month: true, amount: true, currency: true, paid: true, creditCardId: true },
+        columns: {
+          month: true,
+          amount: true,
+          currency: true,
+          paid: true,
+          wontPay: true,
+          creditCardId: true,
+        },
       });
 
       return Array.from({ length: 12 }, (_, i) => {

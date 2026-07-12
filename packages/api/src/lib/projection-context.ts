@@ -73,7 +73,7 @@ export async function buildProjectionContext(
         lte(bill.month, lastMonth),
         isNull(bill.creditCardId), // card charges settle via statements (§4.3)
       ),
-      columns: { month: true, amount: true, currency: true, paid: true },
+      columns: { month: true, amount: true, currency: true, paid: true, wontPay: true },
     }),
     db.query.income.findMany({ where: and(eq(income.userId, userId), eq(income.active, true)) }),
     db.query.incomeOverride.findMany({

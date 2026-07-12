@@ -85,8 +85,8 @@ describe("FX conversion (doc 04 §4.1a)", () => {
 describe("month roll-up (doc 04 §4.4)", () => {
   it("Month bills = remaining, not total (June sample: 17,340.28 − 5,327.83)", () => {
     const june = [
-      { amount: 5_327_83, currency: "BRL" as const, paid: true },
-      { amount: 12_012_45, currency: "BRL" as const, paid: false },
+      { amount: 5_327_83, currency: "BRL" as const, paid: true, wontPay: false },
+      { amount: 12_012_45, currency: "BRL" as const, paid: false, wontPay: false },
     ];
     const rollup = monthRollup(june, identity);
     expect(rollup.totalBills).toBe(17_340_28);
@@ -95,8 +95,26 @@ describe("month roll-up (doc 04 §4.4)", () => {
   });
 
   it("a fully paid month shows 0 remaining", () => {
-    const rollup = monthRollup([{ amount: 1000, currency: "BRL", paid: true }], identity);
+    const rollup = monthRollup(
+      [{ amount: 1000, currency: "BRL", paid: true, wontPay: false }],
+      identity,
+    );
     expect(rollup.remainingBills).toBe(0);
+  });
+
+  it("won't-pay bills leave the payable math but are reported separately", () => {
+    const rollup = monthRollup(
+      [
+        { amount: 1000, currency: "BRL" as const, paid: false, wontPay: false },
+        { amount: 500, currency: "BRL" as const, paid: true, wontPay: false },
+        { amount: 700, currency: "BRL" as const, paid: false, wontPay: true },
+      ],
+      identity,
+    );
+    expect(rollup.totalBills).toBe(1500);
+    expect(rollup.paidBills).toBe(500);
+    expect(rollup.remainingBills).toBe(1000);
+    expect(rollup.wontPayBills).toBe(700);
   });
 });
 

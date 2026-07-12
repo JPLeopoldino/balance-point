@@ -60,7 +60,7 @@ import { trpc } from "@/utils/trpc";
 
 const ALL = "__all__";
 
-type PaidFilter = "all" | "unpaid" | "paid";
+type PaidFilter = "all" | "unpaid" | "paid" | "wontpay";
 
 export default function BillsPage() {
   const t = useT();
@@ -72,7 +72,9 @@ export default function BillsPage() {
   const pathname = usePathname();
   const initialFilter = searchParams.get("filter");
   const [paidFilter, setPaidFilter] = useState<PaidFilter>(
-    initialFilter === "unpaid" || initialFilter === "paid" ? initialFilter : "all",
+    initialFilter === "unpaid" || initialFilter === "paid" || initialFilter === "wontpay"
+      ? initialFilter
+      : "all",
   );
 
   // Recurring bills live here as a view — a recurring bill is still a bill.
@@ -109,7 +111,8 @@ export default function BillsPage() {
   const bills = useQuery(
     trpc.bills.list.queryOptions({
       month,
-      paid: paidFilter === "all" ? undefined : paidFilter === "paid",
+      paid: paidFilter === "paid" ? true : paidFilter === "unpaid" ? false : undefined,
+      wontPay: paidFilter === "wontpay" ? true : paidFilter === "unpaid" ? false : undefined,
       categoryId: categoryId === ALL ? undefined : categoryId,
       accountId: accountId === ALL ? undefined : accountId,
       search: search.trim() || undefined,
@@ -121,6 +124,7 @@ export default function BillsPage() {
   const categories = useQuery(trpc.categories.list.queryOptions());
 
   const unpayMutation = useMutation(trpc.bills.unpay.mutationOptions());
+  const wontPayMutation = useMutation(trpc.bills.setWontPay.mutationOptions());
   const bulkPayMutation = useMutation(trpc.bills.bulkPay.mutationOptions());
   const deleteMutation = useMutation(trpc.bills.delete.mutationOptions());
 
@@ -129,7 +133,7 @@ export default function BillsPage() {
   const activeAccounts = (accounts.data ?? []).filter((a) => !a.archived);
 
   const selectableIds = useMemo(
-    () => new Set(rows.filter((b) => !b.paid && !b.creditCardId).map((b) => b.id)),
+    () => new Set(rows.filter((b) => !b.paid && !b.wontPay && !b.creditCardId).map((b) => b.id)),
     [rows],
   );
   const selectedRows = rows.filter((b) => selected.has(b.id));
@@ -168,6 +172,22 @@ export default function BillsPage() {
       {
         onSuccess: (result) => {
           toast.success(t("bills.unpaidToast", { name: result.bill.name }));
+          invalidateMoneyData();
+        },
+        onError: (error) => toast.error(error.message),
+      },
+    );
+  }
+
+  function setWontPayFor(bill: BillRow, wontPay: boolean) {
+    wontPayMutation.mutate(
+      { id: bill.id, wontPay },
+      {
+        onSuccess: (result) => {
+          toast.success(
+            t(wontPay ? "bills.wontPayToast" : "bills.willPayToast", { name: result.name }),
+          );
+          deselect(bill.id);
           invalidateMoneyData();
         },
         onError: (error) => toast.error(error.message),
@@ -230,6 +250,14 @@ export default function BillsPage() {
             <span className="font-medium text-foreground">
               {formatMoney(summaryRow?.remainingBills ?? 0, displayCurrency)}
             </span>
+            {summaryRow?.wontPayBills ? (
+              <span className="text-muted-foreground/70">
+                {" "}
+                {t("bills.totalsWontPay", {
+                  amount: formatMoney(summaryRow.wontPayBills, displayCurrency),
+                })}
+              </span>
+            ) : null}
           </span>
         ) : null}
       </div>
@@ -245,6 +273,7 @@ export default function BillsPage() {
             <TabsTrigger value="all">{t("bills.filterAll")}</TabsTrigger>
             <TabsTrigger value="unpaid">{t("bills.filterUnpaid")}</TabsTrigger>
             <TabsTrigger value="paid">{t("bills.filterPaid")}</TabsTrigger>
+            <TabsTrigger value="wontpay">{t("bills.filterWontPay")}</TabsTrigger>
           </TabsList>
         </Tabs>
         <Select
@@ -359,6 +388,7 @@ export default function BillsPage() {
                     onToggle={() => toggle(row.id)}
                     onPaid={() => deselect(row.id)}
                     onUnpay={() => unpaySingle(row)}
+                    onSetWontPay={(wontPay) => setWontPayFor(row, wontPay)}
                     onEdit={() => setEditing(row)}
                     onDelete={() => setDeleting(row)}
                   />
@@ -457,6 +487,7 @@ const STATUS_BADGE: Record<BillStatus, { labelKey: MessageKey; className: string
   overdue: { labelKey: "status.overdue", className: "bg-destructive/15 text-destructive" },
   "due-soon": { labelKey: "status.dueSoon", className: "bg-warning/15 text-warning" },
   pending: { labelKey: "status.pending", className: "bg-muted text-muted-foreground" },
+  "wont-pay": { labelKey: "status.wontPay", className: "bg-muted text-muted-foreground/80 line-through" },
 };
 
 function BillTableRow({
@@ -467,6 +498,7 @@ function BillTableRow({
   onToggle,
   onPaid,
   onUnpay,
+  onSetWontPay,
   onEdit,
   onDelete,
 }: {
@@ -477,6 +509,7 @@ function BillTableRow({
   onToggle: () => void;
   onPaid: () => void;
   onUnpay: () => void;
+  onSetWontPay: (wontPay: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -507,7 +540,9 @@ function BillTableRow({
       </TableCell>
       <TableCell className="max-w-48">
         <div className="flex flex-col">
-          <span className="truncate text-xs font-medium">
+          <span
+            className={`truncate text-xs font-medium ${bill.wontPay ? "text-muted-foreground" : ""}`}
+          >
             {bill.name}
             {bill.installmentNumber && bill.installmentTotal ? (
               <span className="text-muted-foreground"> · {bill.installmentNumber}/{bill.installmentTotal}</span>
@@ -538,7 +573,11 @@ function BillTableRow({
       >
         {formatDate(bill.dueDate)}
       </TableCell>
-      <TableCell className="text-right text-xs tabular-nums">
+      <TableCell
+        className={`text-right text-xs tabular-nums ${
+          bill.wontPay ? "text-muted-foreground line-through" : ""
+        }`}
+      >
         <span className="inline-flex items-center gap-1.5">
           <CurrencyChip currency={bill.currency} show={bill.currency !== displayCurrency} />
           {formatMoney(bill.amount, bill.currency)}
@@ -547,7 +586,9 @@ function BillTableRow({
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-1.5">
           <Badge className={`border-transparent text-[10px] ${badge.className}`}>{t(badge.labelKey)}</Badge>
-          {!bill.paid && !isCardCharge ? <PayBillButton bill={bill} onPaid={onPaid} /> : null}
+          {!bill.paid && !bill.wontPay && !isCardCharge ? (
+            <PayBillButton bill={bill} onPaid={onPaid} />
+          ) : null}
         </div>
       </TableCell>
       <TableCell className="w-10">
@@ -561,6 +602,17 @@ function BillTableRow({
             <DropdownMenuItem onClick={onEdit}>{t("common.edit")}</DropdownMenuItem>
             {bill.paid ? (
               <DropdownMenuItem onClick={onUnpay}>{t("bills.markUnpaid")}</DropdownMenuItem>
+            ) : null}
+            {!bill.paid && !isCardCharge ? (
+              bill.wontPay ? (
+                <DropdownMenuItem onClick={() => onSetWontPay(false)}>
+                  {t("bills.unmarkWontPay")}
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => onSetWontPay(true)}>
+                  {t("bills.markWontPay")}
+                </DropdownMenuItem>
+              )
             ) : null}
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
               {t("common.delete")}

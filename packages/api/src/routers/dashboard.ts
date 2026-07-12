@@ -56,7 +56,7 @@ export const dashboardRouter = router({
               inArray(bill.month, [thisMonth, nextMonth]),
               isNull(bill.creditCardId), // card charges settle via statement bills (§4.3)
             ),
-            columns: { month: true, amount: true, currency: true, paid: true },
+            columns: { month: true, amount: true, currency: true, paid: true, wontPay: true },
           }),
           db.query.recurringExpense.findMany({
             where: and(eq(recurringExpense.userId, userId), eq(recurringExpense.active, true)),
@@ -66,7 +66,12 @@ export const dashboardRouter = router({
             columns: { creditCardId: true, amount: true, currency: true },
           }),
           db.query.bill.findMany({
-            where: and(eq(bill.userId, userId), eq(bill.paid, false), gt(bill.amount, 0)),
+            where: and(
+              eq(bill.userId, userId),
+              eq(bill.paid, false),
+              eq(bill.wontPay, false),
+              gt(bill.amount, 0),
+            ),
             orderBy: [asc(bill.dueDate), asc(bill.createdAt)],
             limit: 10,
           }),

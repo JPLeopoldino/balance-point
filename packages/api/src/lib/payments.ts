@@ -102,7 +102,7 @@ export async function payBillTx(
 
   const [updatedBill] = await tx
     .update(bill)
-    .set({ paid: true, paidAt, paidFromAccountId: account.id, paidFxRate: fxRate })
+    .set({ paid: true, wontPay: false, paidAt, paidFromAccountId: account.id, paidFxRate: fxRate })
     .where(and(eq(bill.id, row.id), eq(bill.userId, userId)))
     .returning();
   const [updatedAccount] = await tx

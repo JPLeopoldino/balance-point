@@ -12,6 +12,8 @@ export const planStatusEnum = pgEnum("plan_status", ["draft", "committed"]);
 export const activityTypeEnum = pgEnum("activity_type", [
   "bill_paid",
   "bill_unpaid",
+  "bill_wont_pay",
+  "bill_wont_pay_undone",
   "bill_deleted",
   "balance_edited",
   "yield_accrued",

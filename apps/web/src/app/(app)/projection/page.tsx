@@ -30,7 +30,8 @@ import { ProjectionChart } from "@/components/dashboard/projection-chart";
 import { MoneyInput } from "@/components/money-input";
 import { useFormat, useT } from "@/i18n";
 import { formatMoney } from "@/lib/format";
-import { queryClient, trpc } from "@/utils/trpc";
+import { incomeMutations } from "@/lib/mutations";
+import { trpc } from "@/utils/trpc";
 
 const HORIZONS = [6, 10, 12, 18, 24, 36];
 
@@ -60,27 +61,20 @@ export default function ProjectionPage() {
     () => new Set((overrides.data ?? []).map((o) => o.month)),
     [overrides.data],
   );
-  const setIncomeOverride = useMutation(trpc.income.setOverride.mutationOptions());
-  const clearIncomeOverride = useMutation(trpc.income.clearOverride.mutationOptions());
+  const setIncomeOverride = useMutation(incomeMutations.setOverride());
+  const clearIncomeOverride = useMutation(incomeMutations.clearOverride());
 
   const data = projection.data;
   const currency: Currency = data?.displayCurrency ?? "BRL";
   const firstNegative = data?.rows.find((r) => r.projectedBalance < 0)?.month ?? null;
   const hasYield = (data?.rows ?? []).some((r) => r.yield !== 0);
 
-  function refreshIncome() {
-    void queryClient.invalidateQueries({ queryKey: trpc.projection.pathKey() });
-    void queryClient.invalidateQueries({ queryKey: trpc.income.pathKey() });
-  }
-
   function saveIncome(month: string, amount: Money) {
     setIncomeOverride.mutate(
       { month, amount },
       {
-        onSuccess: () => {
-          toast.success(t("projection.incomeOverrideSet", { month: formatMonthShort(month) }));
-          refreshIncome();
-        },
+        onSuccess: () =>
+          toast.success(t("projection.incomeOverrideSet", { month: formatMonthShort(month) })),
         onError: (error) => toast.error(error.message),
       },
     );
@@ -90,10 +84,8 @@ export default function ProjectionPage() {
     clearIncomeOverride.mutate(
       { month },
       {
-        onSuccess: () => {
-          toast.success(t("projection.backToBaseline", { month: formatMonthShort(month) }));
-          refreshIncome();
-        },
+        onSuccess: () =>
+          toast.success(t("projection.backToBaseline", { month: formatMonthShort(month) })),
         onError: (error) => toast.error(error.message),
       },
     );

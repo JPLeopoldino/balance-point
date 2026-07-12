@@ -34,7 +34,7 @@ import { MoneyInput } from "@/components/money-input";
 import { useT } from "@/i18n";
 import type { BillRow } from "@/lib/api-types";
 import { formatMoney, todayISO } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { billMutations } from "@/lib/mutations";
 import { trpc } from "@/utils/trpc";
 
 const NONE = "__none__";
@@ -115,8 +115,8 @@ export function BillFormDialog({
     [categories.data, t],
   );
 
-  const create = useMutation(trpc.bills.create.mutationOptions());
-  const update = useMutation(trpc.bills.update.mutationOptions());
+  const create = useMutation(billMutations.create());
+  const update = useMutation(billMutations.update());
   const pending = create.isPending || update.isPending;
 
   const isCardCharge = form.payFrom.startsWith("card:");
@@ -128,41 +128,51 @@ export function BillFormDialog({
     return { sourceAccountId, creditCardId };
   }
 
-  async function submit() {
+  // Optimistic submit: the row lands in the table at once, the dialog closes
+  // and a failure rolls the cache back with an error toast.
+  function submit() {
     if (!canSubmit || form.amount === null) return;
     const { sourceAccountId, creditCardId } = refFields();
+    const amount = form.amount;
+    const currency = form.currency;
     const shared = {
       name: form.name.trim(),
-      amount: form.amount,
-      currency: form.currency,
+      amount,
+      currency,
       dueDate: form.dueDate,
       categoryId: form.categoryId === NONE ? null : form.categoryId,
       notes: form.notes.trim() ? form.notes.trim() : null,
     };
-    try {
-      if (isEdit && bill) {
-        await update.mutateAsync({ id: bill.id, ...shared, sourceAccountId, creditCardId });
-        toast.success(t("billForm.updatedToast", { name: shared.name }));
-      } else {
-        await create.mutateAsync({
+    if (isEdit && bill) {
+      update.mutate(
+        { id: bill.id, ...shared, sourceAccountId, creditCardId },
+        {
+          onSuccess: () => toast.success(t("billForm.updatedToast", { name: shared.name })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+    } else {
+      create.mutate(
+        {
           ...shared,
           categoryId: shared.categoryId ?? undefined,
           notes: shared.notes ?? undefined,
           sourceAccountId: sourceAccountId ?? undefined,
           creditCardId: creditCardId ?? undefined,
-        });
-        toast.success(
-          t("billForm.addedToast", {
-            name: shared.name,
-            amount: formatMoney(form.amount, form.currency),
-          }),
-        );
-      }
-      invalidateMoneyData();
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("billForm.saveFailed"));
+        },
+        {
+          onSuccess: () =>
+            toast.success(
+              t("billForm.addedToast", {
+                name: shared.name,
+                amount: formatMoney(amount, currency),
+              }),
+            ),
+          onError: (error) => toast.error(error.message),
+        },
+      );
     }
+    onOpenChange(false);
   }
 
   function selectPayFrom(value: string) {

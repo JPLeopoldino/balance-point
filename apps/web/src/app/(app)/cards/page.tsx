@@ -55,7 +55,8 @@ import { CurrencySelect } from "@/components/currency-select";
 import { MoneyInput } from "@/components/money-input";
 import type { CardRow } from "@/lib/api-types";
 import { formatMoney } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { cardMutations } from "@/lib/mutations";
+import { withCallbacks } from "@/lib/optimistic";
 import { trpc } from "@/utils/trpc";
 
 export default function CardsPage() {
@@ -205,8 +206,21 @@ export default function CardsPage() {
 
 function CardMenu({ card }: { card: CardRow }) {
   const t = useT();
-  const archive = useMutation(trpc.cards.archive.mutationOptions());
-  const del = useMutation(trpc.cards.delete.mutationOptions());
+  // Hook-level callbacks: the optimistic patch removes this card from the
+  // grid, which unmounts the menu before the server answers.
+  const archive = useMutation(
+    withCallbacks(cardMutations.archive(), {
+      onSuccess: (_result, vars) =>
+        toast.success(vars.archived ? t("common.archived") : t("accounts.unarchivedToast")),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const del = useMutation(
+    withCallbacks(cardMutations.delete(), {
+      onSuccess: () => toast.success(t("cards.deletedToast", { name: card.name })),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingOpen, setEditingOpen] = useState(false);
 
@@ -221,19 +235,7 @@ function CardMenu({ card }: { card: CardRow }) {
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditingOpen(true)}>{t("common.edit")}</DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() =>
-              archive.mutate(
-                { id: card.id, archived: !card.archived },
-                {
-                  onSuccess: () => {
-                    toast.success(
-                      card.archived ? t("accounts.unarchivedToast") : t("common.archived"),
-                    );
-                    invalidateMoneyData();
-                  },
-                },
-              )
-            }
+            onClick={() => archive.mutate({ id: card.id, archived: !card.archived })}
           >
             {card.archived ? t("common.unarchive") : t("common.archive")}
           </DropdownMenuItem>
@@ -252,16 +254,7 @@ function CardMenu({ card }: { card: CardRow }) {
         destructive
         onConfirm={() => {
           setConfirmDelete(false);
-          del.mutate(
-            { id: card.id },
-            {
-              onSuccess: () => {
-                toast.success(t("cards.deletedToast", { name: card.name }));
-                invalidateMoneyData();
-              },
-              onError: (error) => toast.error(error.message),
-            },
-          );
+          del.mutate({ id: card.id });
         }}
       />
 
@@ -309,21 +302,24 @@ function CardFormDialog({
     }
   }, [open, card]);
 
-  const create = useMutation(trpc.cards.create.mutationOptions());
-  const update = useMutation(trpc.cards.update.mutationOptions());
+  const create = useMutation(cardMutations.create());
+  const update = useMutation(cardMutations.update());
   const canSubmit = name.trim().length > 0 && bankAccountId && limit !== null && limit > 0;
 
-  async function submit() {
+  // Optimistic submit: the card updates/appears at once and the dialog closes;
+  // a failure rolls the cache back with an error toast.
+  function submit() {
     if (!canSubmit || limit === null) return;
+    const trimmedName = name.trim();
     const dayFields = {
       closingDay: closingDay ? Number(closingDay) : undefined,
       dueDay: dueDay ? Number(dueDay) : undefined,
     };
-    try {
-      if (isEdit && card) {
-        await update.mutateAsync({
+    if (isEdit && card) {
+      update.mutate(
+        {
           id: card.id,
-          name: name.trim(),
+          name: trimmedName,
           brand: brand.trim() || null,
           bankAccountId,
           creditLimit: limit,
@@ -331,25 +327,30 @@ function CardFormDialog({
           closingDay: dayFields.closingDay ?? null,
           dueDay: dayFields.dueDay ?? null,
           color,
-        });
-        toast.success(t("cards.updatedToast", { name: name.trim() }));
-      } else {
-        await create.mutateAsync({
-          name: name.trim(),
+        },
+        {
+          onSuccess: () => toast.success(t("cards.updatedToast", { name: trimmedName })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+    } else {
+      create.mutate(
+        {
+          name: trimmedName,
           brand: brand.trim() || undefined,
           bankAccountId,
           creditLimit: limit,
           currency,
           color: color ?? undefined,
           ...dayFields,
-        });
-        toast.success(t("cards.addedToast", { name: name.trim() }));
-      }
-      invalidateMoneyData();
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("cards.saveFailed"));
+        },
+        {
+          onSuccess: () => toast.success(t("cards.addedToast", { name: trimmedName })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
     }
+    onOpenChange(false);
   }
 
   return (

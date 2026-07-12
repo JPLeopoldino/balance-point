@@ -30,7 +30,7 @@ import { MoneyInput } from "@/components/money-input";
 import { useT } from "@/i18n";
 import type { RecurringRow } from "@/lib/api-types";
 import { todayISO } from "@/lib/format";
-import { invalidateMoneyData } from "@/lib/invalidate";
+import { recurringMutations } from "@/lib/mutations";
 import { trpc } from "@/utils/trpc";
 
 const NONE = "__none__";
@@ -108,8 +108,8 @@ export function RecurringFormDialog({
     setStartDate(template?.startDate ?? todayISO());
   }, [open, template, prefill]);
 
-  const create = useMutation(trpc.recurring.create.mutationOptions());
-  const update = useMutation(trpc.recurring.update.mutationOptions());
+  const create = useMutation(recurringMutations.create());
+  const update = useMutation(recurringMutations.update());
   const pending = create.isPending || update.isPending;
 
   const canSubmit =
@@ -121,7 +121,9 @@ export function RecurringFormDialog({
     (endMode !== "until_date" || endDate) &&
     (endMode !== "installments" || Number(installmentsTotal) >= 1);
 
-  async function submit() {
+  // Optimistic submit: the template lands in the list at once, the dialog
+  // closes and a failure rolls the cache back with an error toast.
+  function submit() {
     if (!canSubmit || amount === null) return;
     const sourceAccountId = chargedTo.startsWith("acc:") ? chargedTo.slice(4) : null;
     const creditCardId = chargedTo.startsWith("card:") ? chargedTo.slice(5) : null;
@@ -137,9 +139,9 @@ export function RecurringFormDialog({
       installmentsTotal: endMode === "installments" ? Number(installmentsTotal) : undefined,
       startDate,
     };
-    try {
-      if (isEdit && template) {
-        await update.mutateAsync({
+    if (isEdit && template) {
+      update.mutate(
+        {
           id: template.id,
           ...shared,
           categoryId: categoryId === NONE ? null : categoryId,
@@ -147,23 +149,28 @@ export function RecurringFormDialog({
           creditCardId,
           endDate: shared.endDate ?? null,
           installmentsTotal: shared.installmentsTotal ?? null,
-        });
-        toast.success(t("recurringForm.updatedToast", { name: shared.name }));
-      } else {
-        await create.mutateAsync({
+        },
+        {
+          onSuccess: () => toast.success(t("recurringForm.updatedToast", { name: shared.name })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
+    } else {
+      create.mutate(
+        {
           ...shared,
           kind,
           categoryId: categoryId === NONE ? undefined : categoryId,
           sourceAccountId: sourceAccountId ?? undefined,
           creditCardId: creditCardId ?? undefined,
-        });
-        toast.success(t("recurringForm.addedToast", { name: shared.name }));
-      }
-      invalidateMoneyData();
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("recurringForm.saveFailed"));
+        },
+        {
+          onSuccess: () => toast.success(t("recurringForm.addedToast", { name: shared.name })),
+          onError: (error) => toast.error(error.message),
+        },
+      );
     }
+    onOpenChange(false);
   }
 
   const chargedToItems = [

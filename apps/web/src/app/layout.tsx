@@ -38,9 +38,11 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  /* The browser chrome sits flush against the top of the page, where the warm
+   * wash in `body` is at full strength — match it, not the plain background. */
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fdfcfb" },
-    { media: "(prefers-color-scheme: dark)", color: "#1c1b19" },
+    { media: "(prefers-color-scheme: light)", color: "#fbf7e8" },
+    { media: "(prefers-color-scheme: dark)", color: "#19160b" },
   ],
 };
 

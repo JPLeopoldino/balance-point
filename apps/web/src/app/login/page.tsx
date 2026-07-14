@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [showSignIn, setShowSignIn] = useState(true);
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background px-4">
+    <main className="flex min-h-svh items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="mb-6 flex flex-col items-center gap-3">
           <Logo className="size-12 text-primary" aria-hidden />
